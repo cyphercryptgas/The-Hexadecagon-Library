@@ -172,10 +172,6 @@
     padding:7px 14px;font-size:12px;letter-spacing:.08em;display:none}
   #cross{position:absolute;top:50%;left:50%;width:4px;height:4px;margin:-2px;
     background:rgba(200,163,90,.85);border-radius:50%;box-shadow:0 0 6px rgba(255,180,94,.6)}
-  #stairUI{position:absolute;bottom:96px;left:50%;transform:translateX(-50%);display:none;gap:10px}
-  #stairUI button{pointer-events:auto;border:1px solid var(--line);background:rgba(7,5,3,.78);
-    color:var(--brass);padding:10px 16px;font-size:11px;letter-spacing:.2em;text-transform:uppercase}
-  #stairUI button:hover{color:var(--amber);border-color:var(--brass)}
   #fade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .45s;z-index:35}
 
   /* touch controls */
@@ -318,10 +314,6 @@
       <div id="hcMeta"></div>
       <div id="hcOpen">E / click to open</div>
     </div>
-  </div>
-  <div id="stairUI">
-    <button id="btnUp">▲ Shallower · famous</button>
-    <button id="btnDown">▼ Deeper · rarer</button>
   </div>
   <div id="hint">Click to look · WASD / drag to move · E or click opens a book</div>
   <div id="joy"><i></i></div>
@@ -822,6 +814,15 @@ const World = (() => {
   let hoveredId = -1, pulse = null;
   // spawn inside the walkable ring (the room's center is the open shaft)
   const player = { x: -1.85, z: 0, yaw: -Math.PI / 2, pitch: 0 };
+  // walkable spiral stair: the player rides a smooth helix; depth swaps under their feet
+  const stair = { on: false, thetaU: 0, h: 0 };
+  const SCX = APO + VEST / 2;            // stair-pole |x| — sits exactly on the treadmill seam
+  const R_IN = 0.15, R_OUT = 0.78, R_WALK = 0.66, ENTRY_H = 0.34;
+  function stairLocal(x, z) {
+    const sx = x >= 0 ? 1 : -1;
+    const u = x - sx * SCX, v = z - STAIR_Z;
+    return { sx, u, v, r: Math.hypot(u, v), th: Math.atan2(v, u) };
+  }
   let keys = {}, paused = false, entered = false;
   const cb = {};
   const raycaster = new THREE.Raycaster();
@@ -1380,16 +1381,61 @@ const World = (() => {
     if (len > 0.001) {
       mx = mx / len * speed; mz = mz / len * speed;
       const nx = player.x + mx, nz = player.z + mz;
-      if (walkable(nx, nz)) { player.x = nx; player.z = nz; }
-      else if (walkable(nx, player.z)) player.x = nx;
-      else if (walkable(player.x, nz)) player.z = nz;
+      if (!stair.on) {
+        // boarding the helix: only through the low windings near the entry step
+        const L = stairLocal(nx, nz);
+        const hEntry = (L.th / (2 * Math.PI)) * LEVEL_H;
+        if (L.r < R_OUT && Math.abs(nx) > APO + 0.05 && Math.abs(hEntry) <= ENTRY_H) {
+          stair.on = true; stair.thetaU = L.th; stair.h = hEntry;
+          player.x = nx; player.z = nz;
+        } else if (walkable(nx, nz)) { player.x = nx; player.z = nz; }
+        else if (walkable(nx, player.z)) player.x = nx;
+        else if (walkable(player.x, nz)) player.z = nz;
+      } else {
+        // riding the helix
+        const raw = stairLocal(nx, nz);
+        if (Math.abs(stair.h) < ENTRY_H && raw.r > R_OUT && walkable(nx, nz)) {
+          stair.on = false; stair.h = 0; // stepping off at a landing
+          player.x = nx; player.z = nz;
+        } else {
+          let px = nx, pz = nz, L = raw;
+          if (L.r < R_IN || L.r > R_WALK) { // central pole inside, phantom railing outside
+            const rr = Math.min(R_WALK, Math.max(R_IN, L.r || 1e-6));
+            px = L.sx * SCX + (L.u / (L.r || 1e-6)) * rr;
+            pz = STAIR_Z + (L.v / (L.r || 1e-6)) * rr;
+            L = stairLocal(px, pz);
+          }
+          const cur = Math.atan2(SIN(stair.thetaU), COS(stair.thetaU));
+          let dth = L.th - cur;
+          if (dth > Math.PI) dth -= 2 * Math.PI; else if (dth <= -Math.PI) dth += 2 * Math.PI;
+          let nT = stair.thetaU + dth;
+          let nH = (nT / (2 * Math.PI)) * LEVEL_H;
+          if (nH > 0.45 && cb.canRise && !cb.canRise()) {
+            // ground floor — the stair simply ends a few steps up
+            if (stair.h < 0.44 && cb.atTop) cb.atTop();
+            nT = (0.45 / LEVEL_H) * 2 * Math.PI; nH = 0.45;
+            const rr = Math.min(R_WALK, Math.max(R_IN, L.r));
+            px = L.sx * SCX + rr * COS(nT); pz = STAIR_Z + rr * SIN(nT);
+          }
+          stair.thetaU = nT; stair.h = nH;
+          player.x = px; player.z = pz;
+          if (stair.h > LEVEL_H / 2) { // crested a landing: one floor shallower
+            stair.thetaU -= 2 * Math.PI; stair.h -= LEVEL_H;
+            if (cb.levelShift) cb.levelShift(-1);
+          } else if (stair.h < -LEVEL_H / 2) { // sank below: one floor deeper
+            stair.thetaU += 2 * Math.PI; stair.h += LEVEL_H;
+            if (cb.levelShift) cb.levelShift(1);
+          }
+        }
+      }
     }
-    if (player.x > PITCH / 2) { player.x -= PITCH; if (cb.roomShift) cb.roomShift(1); }
-    else if (player.x < -PITCH / 2) { player.x += PITCH; if (cb.roomShift) cb.roomShift(-1); }
-    camera.position.set(player.x, EYE, player.z);
-    const cx = APO + VEST / 2;
-    const near = Math.abs(player.x) > APO - 0.4 &&
-      Math.hypot(Math.abs(player.x) - cx, player.z - STAIR_Z) < 1.4;
+    if (!stair.on) { // the seam is suspended while circling the pole that sits on it
+      if (player.x > PITCH / 2) { player.x -= PITCH; if (cb.roomShift) cb.roomShift(1); }
+      else if (player.x < -PITCH / 2) { player.x += PITCH; if (cb.roomShift) cb.roomShift(-1); }
+    }
+    camera.position.set(player.x, EYE + stair.h, player.z);
+    const near = !stair.on && Math.abs(player.x) > APO - 0.4 &&
+      Math.hypot(Math.abs(player.x) - SCX, player.z - STAIR_Z) < 1.4;
     if (cb.nearStair) cb.nearStair(near);
   }
 
@@ -1506,6 +1552,7 @@ const World = (() => {
     reseed(roomStr) { flickerPhase = (fnv(roomStr) % 628) / 100; },
     placeAtCenter(faceWallDeg) {
       const a = (faceWallDeg === undefined ? 0 : faceWallDeg) * RAD;
+      stair.on = false; stair.h = 0; stair.thetaU = 0;
       // stand in the walkable ring, 1.3m from the shelves, facing the wall
       player.x = 1.66 * COS(a);
       player.z = 1.66 * SIN(a);
@@ -1834,7 +1881,13 @@ const World = (() => {
     const q = (meta.wall - 1) * 160 + (meta.shelf - 1) * 32 + (meta.book - 1);
     if (room && room.books[q]) openReader(room.books, q, true);
   });
-  World.on("nearStair", (near) => { $("stairUI").style.display = near && entered ? "flex" : "none"; });
+  let stairHinted = false;
+  World.on("nearStair", (near) => {
+    if (near && entered && !stairHinted) {
+      stairHinted = true;
+      toast("A spiral stair \u2014 walk down for rarer shelves");
+    }
+  });
   $("touchE").addEventListener("click", () => {
     if (!currentHover) return;
     const room = curRoom();
@@ -1842,20 +1895,17 @@ const World = (() => {
     if (room && room.books[q]) openReader(room.books, q, true);
   });
 
-  // ---------- stairs: depth ----------
-  function ride(shallower) {
-    if (shallower && depth === 0) { toast("Ground floor \u2014 nothing more famous than this"); return; }
-    const f = $("fade");
-    f.style.opacity = "1";
-    setTimeout(() => {
-      depth = Math.max(0, depth + (shallower ? -1 : 1));
-      afterRoomChange();
-      toast(shallower ? "One page shallower \u2014 toward the famous" : "One page deeper \u2014 toward the rare");
-      f.style.opacity = "0";
-    }, 480);
-  }
-  $("btnUp").addEventListener("click", () => ride(true));
-  $("btnDown").addEventListener("click", () => ride(false));
+  // ---------- stairs: walk the helix; the world swaps depth under your feet ----------
+  World.on("canRise", () => depth > 0);
+  World.on("atTop", () => toast("Ground floor \u2014 nothing more famous than this"));
+  World.on("levelShift", (d) => {
+    depth = Math.max(0, depth + d);
+    afterRoomChange();
+    toast(d > 0
+      ? "Depth " + depth + " \u2014 rarer shelves"
+      : (depth === 0 ? "Ground floor \u2014 the famous shelves"
+        : "Depth " + depth + " \u2014 toward the famous"));
+  });
 
   // ---------- reader ----------
   const iaAccess = new Map(); // ia id -> "public" | "borrowable"
