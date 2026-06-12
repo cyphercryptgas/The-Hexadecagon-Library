@@ -127,6 +127,29 @@
     #tr-head,#tr-foot{padding-left:16px;padding-right:16px}
   }
 
+  /* ---------- LibriVox player dock (Plateau 3) ---------- */
+  #player{position:fixed;left:14px;bottom:14px;z-index:60;display:flex;align-items:center;gap:10px;
+    background:rgba(7,5,3,.88);border:1px solid var(--line);border-left:2px solid var(--brass);
+    padding:8px 12px;max-width:min(94vw,660px);backdrop-filter:blur(3px)}
+  #player img{width:36px;height:52px;object-fit:cover;border:1px solid var(--line)}
+  #plMeta{min-width:0;display:flex;flex-direction:column;gap:3px}
+  #plTitle{color:var(--paper);font-size:12.5px;font-style:italic;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;max-width:190px}
+  #plSec{background:rgba(0,0,0,.5);color:var(--brass);border:1px solid var(--line);font-size:10.5px;
+    max-width:190px;padding:2px}
+  #player>button{border:1px solid var(--line);background:transparent;color:var(--brass);
+    width:30px;height:30px;font-size:12px;flex:none}
+  #player>button:hover{color:var(--amber);border-color:var(--brass)}
+  #plSeek{width:130px;accent-color:#c8a35a}
+  #plTime{color:var(--brass-dim);font-size:10.5px;font-family:'Courier New',monospace;
+    min-width:78px;text-align:right}
+  @media (max-width:700px){
+    #player{gap:6px;padding:6px 8px}
+    #plSeek{width:70px}
+    #plTitle,#plSec{max-width:110px}
+    #plTime{min-width:0}
+  }
+
   /* ---------- HUD ---------- */
   #hud{position:fixed;inset:0;pointer-events:none;z-index:20}
   #slip{position:absolute;top:14px;left:14px;pointer-events:auto;background:rgba(7,5,3,.62);
@@ -457,6 +480,22 @@
   </div>
 </div>
 
+<!-- LibriVox player dock (Plateau 3) — keeps narrating while you read or walk -->
+<div id="player" class="hidden">
+  <img id="plCover" alt="">
+  <div id="plMeta">
+    <div id="plTitle">&mdash;</div>
+    <select id="plSec"></select>
+  </div>
+  <button id="plPrev" title="Previous chapter">&#9194;</button>
+  <button id="plPlay" title="Play / pause">&#9654;</button>
+  <button id="plNext" title="Next chapter">&#9193;</button>
+  <input id="plSeek" type="range" min="0" max="1000" value="0">
+  <span id="plTime">0:00</span>
+  <button id="plClose" title="Close player">&#10005;</button>
+  <audio id="plAudio" preload="none"></audio>
+</div>
+
 <div id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -717,12 +756,28 @@ const Catalog = (() => {
     }
   }
 
+  // Plateau 3: LibriVox audiobook + Gutenberg-id resolution via the catalog node.
+  async function findAudio(title, author) {
+    if (!REMOTE_BASE || !(await probe())) return null;
+    try {
+      return await remoteJSON("/audio/resolve?title=" + encodeURIComponent(title) +
+        (author ? "&author=" + encodeURIComponent(author) : ""), 30000);
+    } catch (e) { return null; }
+  }
+  async function findGutenberg(title, author) {
+    if (!REMOTE_BASE || !(await probe())) return null;
+    try {
+      return await remoteJSON("/gutenberg-find?title=" + encodeURIComponent(title) +
+        (author ? "&author=" + encodeURIComponent(author) : ""), 30000);
+    } catch (e) { return null; }
+  }
+
   const coverURL = (id, size) => "https://covers.openlibrary.org/b/id/" + id + "-" + (size || "M") + ".jpg";
 
   return {
     SUBJECTS, ROOM_SIZE,
     subjectOf, pretty, keyOf,
-    loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText,
+    loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText, findAudio, findGutenberg,
     probe, remoteEnabled: () => !!REMOTE_BASE,
   };
 })();
@@ -1915,6 +1970,19 @@ const World = (() => {
       g.style.textDecoration = "none";
       links.appendChild(g);
     }
+    if (b._audio && b._audio.sections && b._audio.sections.length) {
+      const l = document.createElement("button");
+      l.className = "pbtn";
+      l.textContent = "Listen \u2014 here";
+      l.addEventListener("click", () => openPlayer(b, b._audio));
+      links.appendChild(l);
+    } else if (b._audio && b._audio.url) {
+      const l = document.createElement("a");
+      l.className = "pbtn"; l.textContent = "LibriVox \u2197";
+      l.href = b._audio.url; l.target = "_blank"; l.rel = "noopener";
+      l.style.textDecoration = "none";
+      links.appendChild(l);
+    }
     const ol = document.createElement("a");
     ol.className = "pbtn"; ol.textContent = "Open Library \u2197";
     ol.href = "https://openlibrary.org" + b.key;
@@ -1929,6 +1997,25 @@ const World = (() => {
     else if (b.ia) note.textContent = "In copyright \u2014 the Archive shows a preview; a free archive.org account borrows the full book.";
     else note.textContent = "No scan exists for this one yet \u2014 metadata only.";
     links.appendChild(note);
+
+    // Plateau 3: resolve narration + missing gutenberg ids lazily, once per book
+    if (Catalog.remoteEnabled()) {
+      const myKey2 = b.key;
+      const still = () => reader && reader.list[reader.idx] && reader.list[reader.idx].key === myKey2;
+      if (!b.gutenberg && !b._gutChecked) {
+        b._gutChecked = true;
+        Catalog.findGutenberg(b.title, b.author).then((r) => {
+          if (r && r.gutenberg) { b.gutenberg = r.gutenberg; if (still()) renderReader(); }
+        });
+      }
+      if (b._audio === undefined) {
+        b._audio = null; // pending
+        Catalog.findAudio(b.title, b.author).then((a) => {
+          b._audio = (a && a.found) ? a : false;
+          if (b._audio && still()) renderReader();
+        });
+      }
+    }
   }
 
   // ---------- in-app Gutenberg text reader (Plateau 2) ----------
@@ -2099,6 +2186,83 @@ const World = (() => {
       TR.page = Math.min(TR.pages - 1, Math.round(pct * (TR.pages - 1)));
       trApply();
     }
+  });
+
+  // ---------- LibriVox player dock (Plateau 3) ----------
+  // One global <audio>; narration keeps going across modals and while walking.
+  let PL = null; // { b, a, idx }
+  const plAudio = $("plAudio");
+
+  function fmtT(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+    return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0");
+  }
+  function plSave() {
+    if (!PL) return;
+    try {
+      const all = JSON.parse(localStorage.getItem("hexlib:audio") || "{}");
+      all[PL.b.key] = { i: PL.idx, t: plAudio.currentTime || 0 };
+      localStorage.setItem("hexlib:audio", JSON.stringify(all));
+    } catch (e) {}
+  }
+  function plLoad(i, t) {
+    if (!PL) return;
+    PL.idx = Math.max(0, Math.min(PL.a.sections.length - 1, i));
+    $("plSec").value = String(PL.idx);
+    plAudio.src = PL.a.sections[PL.idx].url;
+    if (t) plAudio.addEventListener("loadedmetadata",
+      () => { try { plAudio.currentTime = t; } catch (e) {} }, { once: true });
+    plAudio.play().catch(() => {});
+  }
+  function openPlayer(b, a) {
+    plSave();
+    PL = { b, a, idx: 0 };
+    $("plTitle").textContent = b.title;
+    const cov = $("plCover");
+    if (b.cover) { cov.src = Catalog.coverURL(b.cover, "S"); cov.style.display = ""; }
+    else cov.style.display = "none";
+    const sel = $("plSec");
+    sel.innerHTML = "";
+    a.sections.forEach((s, i) => {
+      const o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = (i + 1) + ". " + s.title;
+      sel.appendChild(o);
+    });
+    $("player").classList.remove("hidden");
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem("hexlib:audio") || "{}")[b.key] || null; } catch (e) {}
+    plLoad(saved ? saved.i : 0, saved ? saved.t : 0);
+  }
+  plAudio.addEventListener("timeupdate", () => {
+    if (!PL) return;
+    const d = plAudio.duration || 0;
+    $("plSeek").value = d ? String(Math.round((plAudio.currentTime / d) * 1000)) : "0";
+    $("plTime").textContent = fmtT(plAudio.currentTime) + " / " + fmtT(d);
+    if ((plAudio.currentTime | 0) % 5 === 0) plSave();
+  });
+  plAudio.addEventListener("ended", () => {
+    if (PL && PL.idx < PL.a.sections.length - 1) plLoad(PL.idx + 1, 0);
+  });
+  plAudio.addEventListener("play", () => { $("plPlay").innerHTML = "&#10073;&#10073;"; });
+  plAudio.addEventListener("pause", () => { $("plPlay").innerHTML = "&#9654;"; });
+  $("plPlay").addEventListener("click", () =>
+    plAudio.paused ? plAudio.play().catch(() => {}) : plAudio.pause());
+  $("plPrev").addEventListener("click", () => PL && plLoad(PL.idx - 1, 0));
+  $("plNext").addEventListener("click", () => PL && plLoad(PL.idx + 1, 0));
+  $("plSec").addEventListener("change", (e) => PL && plLoad(Number(e.target.value) || 0, 0));
+  $("plSeek").addEventListener("input", () => {
+    const d = plAudio.duration || 0;
+    if (d) plAudio.currentTime = d * (Number($("plSeek").value) / 1000);
+  });
+  $("plClose").addEventListener("click", () => {
+    plSave();
+    plAudio.pause();
+    plAudio.removeAttribute("src");
+    plAudio.load();
+    $("player").classList.add("hidden");
+    PL = null;
   });
 
   function bookStep(d) {
