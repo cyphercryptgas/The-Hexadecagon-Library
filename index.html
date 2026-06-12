@@ -1714,7 +1714,7 @@ const World = (() => {
       img.src = Catalog.coverURL(job.id, "M");
     }
   }
-  function trimCoverCache() { if (coverImgs.size > 900) coverImgs.clear(); }
+  function trimCoverCache() { if (coverImgs.size > 900) { coverImgs.clear(); coverPal.clear(); } }
   let lastFlush = 0;
   function markDirty(q) {
     dirty.push(q);
@@ -1733,6 +1733,102 @@ const World = (() => {
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return h >>> 0; };
   const hexCol = (n) => "#" + n.toString(16).padStart(6, "0");
 
+  // ---- synthesized spines ----
+  // Nobody has spine imagery at scale — only front covers. So each spine is
+  // typeset from the cover's own palette: binding color sampled from the art,
+  // a small vignette at the head, the title in type down the spine.
+  const palCv = document.createElement("canvas"); palCv.width = palCv.height = 8;
+  const palCx = palCv.getContext("2d", { willReadFrequently: true });
+  const coverPal = new Map(); // cover_i -> {bg, ink, acc}
+  function paletteOf(id, img) {
+    let p = coverPal.get(id);
+    if (p) return p;
+    try {
+      palCx.drawImage(img, 0, 0, 8, 8);
+      const d = palCx.getImageData(0, 0, 8, 8).data;
+      let br = 0, bg2 = 0, bb = 0, bn = 0, best = null, bestSat = -1;
+      for (let i = 0; i < 64; i++) {
+        const R = d[i * 4], G = d[i * 4 + 1], B = d[i * 4 + 2];
+        const xx = i % 8, yy = (i / 8) | 0;
+        if (xx === 0 || yy === 0 || xx === 7 || yy === 7) { br += R; bg2 += G; bb += B; bn++; }
+        const mx = Math.max(R, G, B), mn = Math.min(R, G, B), sat = mx ? (mx - mn) / mx : 0;
+        if (sat > bestSat && mx > 60) { bestSat = sat; best = [R, G, B]; }
+      }
+      const eR = (br / bn) | 0, eG = (bg2 / bn) | 0, eB = (bb / bn) | 0;
+      const lum = (0.2126 * eR + 0.7152 * eG + 0.0722 * eB) / 255;
+      p = {
+        bg: "rgb(" + eR + "," + eG + "," + eB + ")",
+        ink: lum > 0.55 ? "#241405" : "rgba(240,228,200,0.95)",
+        acc: best ? "rgba(" + best[0] + "," + best[1] + "," + best[2] + ",0.9)" : "rgba(212,175,110,0.85)",
+      };
+    } catch (e) { // tainted canvas or decode oddity: fall back to hash hues
+      p = { bg: hexCol(SPINE_HUES[fnv(String(id)) % SPINE_HUES.length]),
+        ink: "rgba(240,228,200,0.95)", acc: "rgba(212,175,110,0.85)" };
+    }
+    coverPal.set(id, p);
+    return p;
+  }
+
+  function drawSpine(ctx, x, y, w, h, k, bg, ink, acc, b, img) {
+    ctx.fillStyle = bg;
+    ctx.fillRect(x, y, w, h);
+    let top = y;
+    if (img) { // a sliver of the cover art at the head, like a vignette
+      const bandH = h * 0.15;
+      const sc = Math.max(w / img.width, bandH / img.height);
+      const sw = w / sc, sh = bandH / sc;
+      ctx.drawImage(img, (img.width - sw) / 2, img.height * 0.05, sw, sh, x, y, w, bandH);
+      ctx.fillStyle = "rgba(0,0,0,0.15)";
+      ctx.fillRect(x, y, w, bandH);
+      top = y + bandH;
+    }
+    // rounded-binding shading
+    ctx.fillStyle = "rgba(0,0,0,0.24)";
+    ctx.fillRect(x, y, 3 * k, h);
+    ctx.fillStyle = "rgba(255,236,200,0.09)";
+    ctx.fillRect(x + w - 2 * k, y, 2 * k, h);
+    // gilt rules: one beneath the head, a pair at the tail
+    ctx.fillStyle = "rgba(212,175,110,0.75)";
+    ctx.fillRect(x + 4 * k, top + 4 * k, w - 8 * k, 1.6 * k);
+    ctx.fillRect(x + 4 * k, y + h - 10 * k, w - 8 * k, 1.6 * k);
+    ctx.fillRect(x + 4 * k, y + h - 15 * k, w - 8 * k, 1 * k);
+    // title set down the spine
+    const title = b.title.length > 26 ? b.title.slice(0, 25) + "\u2026" : b.title;
+    const availTop = top + 10 * k, availEnd = y + h - 22 * k;
+    const avail = availEnd - availTop;
+    ctx.save();
+    ctx.translate(x + w * 0.58, availTop);
+    ctx.rotate(Math.PI / 2);
+    let size = Math.round(15 * k);
+    ctx.font = "600 " + size + "px Georgia, serif";
+    while (ctx.measureText(title).width > avail && size > 8 * k) {
+      size--; ctx.font = "600 " + size + "px Georgia, serif";
+    }
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = ink;
+    ctx.fillText(title, 0, 0);
+    // the author's surname follows, smaller, when there's room
+    if (b.author) {
+      const parts = String(b.author).trim().split(/\s+/);
+      const sur = parts[parts.length - 1].toUpperCase();
+      const tl = ctx.measureText(title).width;
+      ctx.font = "500 " + Math.max(7, Math.round(size * 0.62)) + "px Georgia, serif";
+      if (tl + 12 * k + ctx.measureText(sur).width <= avail) {
+        ctx.globalAlpha = 0.78;
+        ctx.fillText(sur, tl + 12 * k, 0);
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.restore();
+    // a small ornament at the tail in the cover's accent
+    ctx.fillStyle = acc;
+    ctx.save();
+    ctx.translate(x + w / 2, y + h - 18 * k);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillRect(-1.8 * k, -1.8 * k, 3.6 * k, 3.6 * k);
+    ctx.restore();
+  }
+
   World.setSpineRenderer((ctx, q, x, y, w, h) => {
     const k = w / 32; // atlas cells scale with resolution
     const room = curRoom();
@@ -1745,51 +1841,14 @@ const World = (() => {
     }
     const img = b.cover ? coverImgs.get(b.cover) : null;
     if (img && img !== "err") {
-      // cover art compressed onto the spine, the way a jacket wraps
-      const scale = Math.max(w / img.width, h / img.height);
-      const sw = w / scale, sh = h / scale;
-      const sx = (img.width - sw) / 2, sy = (img.height - sh) * 0.18;
-      ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
-      const g = ctx.createLinearGradient(x, 0, x + w, 0);
-      g.addColorStop(0, "rgba(0,0,0,0.34)");
-      g.addColorStop(0.18, "rgba(0,0,0,0.05)");
-      g.addColorStop(0.82, "rgba(0,0,0,0.10)");
-      g.addColorStop(1, "rgba(0,0,0,0.40)");
-      ctx.fillStyle = g;
-      ctx.fillRect(x, y, w, h);
+      const pal = paletteOf(b.cover, img);
+      drawSpine(ctx, x, y, w, h, k, pal.bg, pal.ink, pal.acc, b, img);
       return;
     }
-    // no cover (yet): tinted spine with the real title
+    // no cover art at all: bind it in hash-picked cloth, same typesetting
     const hsh = fnv(b.key + "|" + q);
-    ctx.fillStyle = hexCol(SPINE_HUES[hsh % SPINE_HUES.length]);
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = "rgba(0,0,0,0.22)";
-    ctx.fillRect(x, y, 3 * k, h);
-    ctx.fillStyle = "rgba(255,236,200,0.08)"; // worn fore-edge highlight
-    ctx.fillRect(x + w - 2 * k, y, 2 * k, h);
-    if ((hsh >>> 5) % 4 !== 0) { // most bindings carry tooled gilt rules
-      ctx.fillStyle = "rgba(212,175,110,0.7)";
-      ctx.fillRect(x + 4 * k, y + 9 * k, w - 8 * k, 2 * k);
-      ctx.fillRect(x + 4 * k, y + 14 * k, w - 8 * k, 1 * k);
-      ctx.fillRect(x + 4 * k, y + h - 13 * k, w - 8 * k, 1 * k);
-      ctx.fillRect(x + 4 * k, y + h - 9 * k, w - 8 * k, 2 * k);
-    }
-    ctx.save();
-    ctx.translate(x + w * 0.62, y + 8 * k);
-    ctx.rotate(Math.PI / 2);
-    let size = Math.round(17 * k);
-    const title = b.title.length > 30 ? b.title.slice(0, 29) + "\u2026" : b.title;
-    ctx.font = "600 " + size + "px Georgia, serif";
-    while (ctx.measureText(title).width > h - 20 * k && size > 9 * k) {
-      size--; ctx.font = "600 " + size + "px Georgia, serif";
-    }
-    ctx.textBaseline = "middle";
-    const len = ctx.measureText(title).width;
-    ctx.fillStyle = "rgba(231,217,184,0.85)";
-    ctx.fillRect(-4 * k, -w * 0.40, len + 10 * k, w * 0.78);
-    ctx.fillStyle = "#241405";
-    ctx.fillText(title, k, 0);
-    ctx.restore();
+    drawSpine(ctx, x, y, w, h, k, hexCol(SPINE_HUES[hsh % SPINE_HUES.length]),
+      "rgba(240,228,200,0.92)", "rgba(212,175,110,0.85)", b, null);
   });
 
   // ---------- room lifecycle ----------
