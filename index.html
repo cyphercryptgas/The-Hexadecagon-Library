@@ -1775,6 +1775,11 @@ const World = (() => {
       if (cells.length) World.updateSpineCells(cells);
       if (room.complete) {
         applyEmpties();
+        if (room.got === 0 && myDepth > 0 && !room._endToasted) {
+          room._endToasted = true;
+          toast("Past the last " + Catalog.pretty(Catalog.subjectOf(mySi)).toLowerCase() +
+            " book \u2014 these shelves await what hasn't been written");
+        }
       }
       updateSlip();
     });
