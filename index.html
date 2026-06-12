@@ -99,6 +99,17 @@
     margin:1.5em 0 1.1em;color:#3a2a12;break-after:avoid}
   #tr-flow p.verse{white-space:pre-line;text-align:left;text-indent:0;margin:0 0 .95em 1.4em;font-style:italic}
   #tr-flow p.loading{font-style:italic;text-align:center;text-indent:0;color:#6e5530;margin-top:34vh}
+  #tr-flow img{max-width:92%;max-height:62vh;width:auto;height:auto;display:block;margin:1.1em auto;
+    break-inside:avoid;border:1px solid rgba(60,40,16,.25);box-shadow:0 4px 14px rgba(0,0,0,.18)}
+  #tr-flow h1,#tr-flow h2,#tr-flow h3,#tr-flow h4,#tr-flow h5{font-weight:normal;font-variant:small-caps;
+    letter-spacing:.14em;text-align:center;text-indent:0;color:#3a2a12;break-after:avoid;margin:1.4em 0 1em;font-size:1.15em}
+  #tr-flow blockquote{margin:0 0 .95em 1.4em;font-style:italic}
+  #tr-flow table{font-size:88%;margin:0 auto .95em;border-collapse:collapse}
+  #tr-flow td,#tr-flow th{padding:2px 8px}
+  #tr-flow hr{border:none;border-top:1px solid rgba(60,40,16,.3);margin:1.2em 10%}
+  #tr-flow .pagenum,#tr-flow .pageno,#tr-flow .pgmonospaced .pagenum{display:none}
+  #tr-flow figure{margin:1.1em 0;break-inside:avoid;text-align:center}
+  #tr-flow figcaption{font-size:85%;font-style:italic;color:#5a4422;text-indent:0}
   .tr-edge{position:absolute;top:0;bottom:0;width:56px;border:none;background:transparent;color:transparent;
     font-size:36px;font-family:Georgia,serif;transition:color .15s,background .15s;cursor:pointer}
   .tr-edge.left{left:0}
@@ -684,7 +695,8 @@ const Catalog = (() => {
     return { si, depth: Math.floor(offset / ROOM_SIZE), slot: offset % ROOM_SIZE, doc };
   }
 
-  // Plateau 2: full plaintext of a public-domain work, proxied + cached by the catalog node.
+  // Plateau 2: full text of a public-domain work, proxied + cached by the catalog node.
+  // Returns { kind: "html"|"text", body } — html editions carry the book's illustrations.
   async function gutenbergText(gid) {
     if (!REMOTE_BASE) throw new Error("no catalog node configured");
     const ctl = new AbortController();
@@ -692,7 +704,8 @@ const Catalog = (() => {
     try {
       const r = await fetch(REMOTE_BASE + "/gutenberg/" + encodeURIComponent(gid), { signal: ctl.signal });
       if (!r.ok) throw new Error("text service replied " + r.status);
-      return await r.text();
+      const kind = (r.headers.get("content-type") || "").includes("html") ? "html" : "text";
+      return { kind, body: await r.text() };
     } finally {
       clearTimeout(t);
     }
@@ -1913,15 +1926,16 @@ const World = (() => {
   }
 
   // ---------- in-app Gutenberg text reader (Plateau 2) ----------
-  // The browser typesets the book: the text flows into fixed-height CSS columns,
+  // The browser typesets the book: content flows into fixed-height CSS columns,
   // one column per page, and turning a page is a horizontal translate.
-  const trTextCache = new Map(); // gutenberg id -> stripped plaintext
+  // HTML editions (with the book's actual illustrations) are preferred;
+  // plaintext editions are reflowed with verse and chapter detection.
+  const trTextCache = new Map(); // gutenberg id -> { kind, body }
   const TR_GAP = 64;
-  let TR = null; // { paras, mounted, page, pages, gid }
+  let TR = null; // { nodes, mounted, page, pages, gid }
 
   function toParagraphs(t) {
-    // Gutenberg plaintext hard-wraps lines inside paragraphs; unwrap them,
-    // but keep line breaks for verse and style chapter headings.
+    t = t.replace(/\[Illustration:?[^\]]*\]/g, " "); // plaintext has no pictures, only markers
     const out = [];
     for (const block of t.split(/\n{2,}/)) {
       const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -1936,6 +1950,51 @@ const World = (() => {
     return out;
   }
 
+  function textToNodes(t) {
+    return toParagraphs(t).map((p, i) => {
+      const el = document.createElement("p");
+      if (p.heading) el.className = "chap";
+      else if (p.verse) el.className = "verse";
+      else if (i === 0) el.className = "first";
+      el.textContent = p.text;
+      return el;
+    });
+  }
+
+  function htmlToNodes(html, gid) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("#pg-header,#pg-footer,.pg-boilerplate,script,style,link,iframe,nav,title")
+      .forEach((n) => n.remove());
+    const base = "https://www.gutenberg.org/cache/epub/" + gid + "/";
+    doc.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("src") || "";
+      if (src && !/^https?:/i.test(src)) img.src = base + src.replace(/^\.?\//, "");
+      img.removeAttribute("width"); img.removeAttribute("height");
+      img.loading = "lazy";
+    });
+    doc.querySelectorAll("a").forEach((a) => a.removeAttribute("href")); // anchor jumps would break paging
+    // flatten giant wrapper divs so chunked mounting can split the book
+    let blocks = Array.from(doc.body.children);
+    for (let pass = 0; pass < 4; pass++) {
+      const next = [];
+      let split = false;
+      for (const b of blocks) {
+        if (/^(div|section|article|main)$/i.test(b.tagName) && b.children.length > 3 &&
+            b.textContent.length > 12000) {
+          for (const c of Array.from(b.children)) next.push(c);
+          split = true;
+        } else next.push(b);
+      }
+      blocks = next;
+      if (!split) break;
+    }
+    return blocks.filter((n) => (n.textContent && n.textContent.trim()) || n.querySelector("img"));
+  }
+
+  function trImgRelayout() {
+    if (TR && !$("textReader").classList.contains("hidden")) { trMeasure(); trApply(); }
+  }
+
   function trMeasure() {
     const W = $("tr-viewport").clientWidth;
     const flow = $("tr-flow");
@@ -1946,14 +2005,11 @@ const World = (() => {
   function trMount(n) {
     const flow = $("tr-flow");
     const frag = document.createDocumentFragment();
-    const end = Math.min(TR.paras.length, TR.mounted + n);
+    const end = Math.min(TR.nodes.length, TR.mounted + n);
     for (let i = TR.mounted; i < end; i++) {
-      const p = TR.paras[i];
-      const el = document.createElement("p");
-      if (p.heading) el.className = "chap";
-      else if (p.verse) el.className = "verse";
-      else if (i === 0) el.className = "first";
-      el.textContent = p.text;
+      const el = TR.nodes[i];
+      el.querySelectorAll && el.querySelectorAll("img").forEach((img) =>
+        img.addEventListener("load", trImgRelayout, { once: true }));
       frag.appendChild(el);
     }
     TR.mounted = end;
@@ -1964,14 +2020,14 @@ const World = (() => {
   function trApply() {
     const W = $("tr-viewport").clientWidth;
     $("tr-flow").style.transform = "translateX(" + (-TR.page * (W + TR_GAP)) + "px)";
-    const done = TR.mounted >= TR.paras.length;
+    const done = TR.mounted >= TR.nodes.length;
     const est = done ? TR.pages
-      : Math.ceil(TR.pages * (TR.paras.length / Math.max(1, TR.mounted)));
+      : Math.ceil(TR.pages * (TR.nodes.length / Math.max(1, TR.mounted)));
     $("trPage").textContent = "page " + (TR.page + 1) + " of " + (done ? TR.pages : "about " + est);
     try { // remember roughly where the reader is, per book
       const all = JSON.parse(localStorage.getItem("hexlib:read") || "{}");
-      const paraIdx = Math.round((TR.page / Math.max(1, TR.pages)) * TR.mounted);
-      all[TR.gid] = Math.min(0.999, paraIdx / Math.max(1, TR.paras.length));
+      const nodeIdx = Math.round((TR.page / Math.max(1, TR.pages)) * TR.mounted);
+      all[TR.gid] = Math.min(0.999, nodeIdx / Math.max(1, TR.nodes.length));
       localStorage.setItem("hexlib:read", JSON.stringify(all));
     } catch (e) {}
   }
@@ -1981,7 +2037,7 @@ const World = (() => {
     const target = TR.page + d;
     if (target < 0) return;
     let guard = 0; // typeset more of the book as the reader approaches the frontier
-    while (TR.mounted < TR.paras.length && target > TR.pages - 3 && guard++ < 40) trMount(150);
+    while (TR.mounted < TR.nodes.length && target > TR.pages - 3 && guard++ < 40) trMount(150);
     TR.page = Math.min(target, TR.pages - 1);
     trApply();
   }
@@ -1997,24 +2053,25 @@ const World = (() => {
     openModal("textReader");
     TR = null;
     const gid = b.gutenberg;
-    const ready = (text) => {
+    const ready = (got) => {
       if ($("textReader").classList.contains("hidden")) return; // closed while loading
       flow.innerHTML = "";
-      TR = { paras: toParagraphs(text), mounted: 0, page: 0, pages: 1, gid };
+      const nodes = got.kind === "html" ? htmlToNodes(got.body, gid) : textToNodes(got.body);
+      TR = { nodes, mounted: 0, page: 0, pages: 1, gid };
       trMount(220);
       let pct = 0;
       try { pct = JSON.parse(localStorage.getItem("hexlib:read") || "{}")[gid] || 0; } catch (e) {}
       if (pct > 0.002) { // resume: typeset the whole book, then land on the saved spot
         let guard = 0;
-        while (TR.mounted < TR.paras.length && guard++ < 80) trMount(250);
+        while (TR.mounted < TR.nodes.length && guard++ < 80) trMount(250);
         TR.page = Math.min(TR.pages - 1, Math.round(pct * TR.pages));
       }
       trApply();
     };
     if (trTextCache.has(gid)) return ready(trTextCache.get(gid));
-    Catalog.gutenbergText(gid).then((text) => {
-      trTextCache.set(gid, text);
-      ready(text);
+    Catalog.gutenbergText(gid).then((got) => {
+      trTextCache.set(gid, got);
+      ready(got);
     }).catch((e) => {
       if ($("textReader").classList.contains("hidden")) return;
       flow.innerHTML = "";
