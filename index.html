@@ -7,7 +7,7 @@
 <script>
   // Plateau 1: paste your Railway catalog URL here (e.g. "https://stacks-catalog-production.up.railway.app").
   // Leave empty to use the live Open Library API directly.
-  window.CATALOG_BASE = "stacks-catalog-production.up.railway.app";
+  window.CATALOG_BASE = "";
 </script>
 <style>
   :root{
@@ -79,6 +79,42 @@
   #landing .epigraph{margin:34px auto 0;color:#6e5a3c;font-style:italic;font-size:12.5px;max-width:420px;
     line-height:1.7;padding:0 18px}
   #bootline{margin-top:14px;color:#5d4c33;font-size:11px;letter-spacing:.2em;text-transform:uppercase;min-height:14px}
+
+  /* ---------- in-app full-text reader (Plateau 2) ---------- */
+  #textReader{flex-direction:column;padding:16px}
+  #tr-book{width:min(860px,96vw);height:min(92vh,1000px);display:flex;flex-direction:column;
+    background:linear-gradient(135deg,var(--paper) 0%,var(--paper-deep) 100%);color:var(--ink);
+    border:1px solid #3a2c16;box-shadow:0 24px 90px rgba(0,0,0,.9), inset 0 0 110px rgba(110,80,40,.20)}
+  #tr-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
+    padding:18px 26px 12px;border-bottom:1px solid rgba(60,40,16,.35)}
+  #tr-head .t{font-style:italic;font-size:17px;color:#241a0e}
+  #tr-head .a{font-size:12px;color:#4a3517;letter-spacing:.05em;margin-top:2px}
+  #tr-stage{position:relative;flex:1;min-height:0}
+  #tr-viewport{position:absolute;inset:18px 64px;overflow:hidden}
+  #tr-flow{height:100%;column-gap:64px;column-fill:auto;transition:transform .24s ease;will-change:transform;
+    font-family:Georgia,'Times New Roman',serif;font-size:16.5px;line-height:1.78;text-align:justify;hyphens:auto}
+  #tr-flow p{margin:0 0 .95em;text-indent:1.6em}
+  #tr-flow p.first{text-indent:0}
+  #tr-flow p.chap{font-variant:small-caps;letter-spacing:.18em;text-align:center;text-indent:0;
+    margin:1.5em 0 1.1em;color:#3a2a12;break-after:avoid}
+  #tr-flow p.verse{white-space:pre-line;text-align:left;text-indent:0;margin:0 0 .95em 1.4em;font-style:italic}
+  #tr-flow p.loading{font-style:italic;text-align:center;text-indent:0;color:#6e5530;margin-top:34vh}
+  .tr-edge{position:absolute;top:0;bottom:0;width:56px;border:none;background:transparent;color:transparent;
+    font-size:36px;font-family:Georgia,serif;transition:color .15s,background .15s;cursor:pointer}
+  .tr-edge.left{left:0}
+  .tr-edge.right{right:0}
+  .tr-edge:hover,.tr-edge:focus-visible{color:#4a3517;outline:none}
+  .tr-edge.left:hover{background:linear-gradient(to right,rgba(60,40,16,.08),transparent)}
+  .tr-edge.right:hover{background:linear-gradient(to left,rgba(60,40,16,.08),transparent)}
+  #tr-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:10px 26px 14px;border-top:1px solid rgba(60,40,16,.35);
+    font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#6e5530}
+  @media (max-width:700px){
+    #tr-viewport{inset:12px 40px}
+    .tr-edge{width:38px}
+    #tr-flow{font-size:15.5px;text-align:left;hyphens:none}
+    #tr-head,#tr-foot{padding-left:16px;padding-right:16px}
+  }
 
   /* ---------- HUD ---------- */
   #hud{position:fixed;inset:0;pointer-events:none;z-index:20}
@@ -276,7 +312,7 @@
       <button data-open="addressModal">By ISBN or ID</button>
       <button data-open="about">About the Stacks</button>
     </nav>
-    <div class="epigraph">Catalog, covers and reading courtesy of Open Library &amp; the Internet Archive. The stacks are alive: they grow as the catalog grows.</div>
+    <div class="epigraph">Catalog, covers and reading courtesy of Open Library &amp; the Internet Archive. Full texts of public-domain works courtesy of Project Gutenberg. The stacks are alive: they grow as the catalog grows.</div>
     <div id="bootline">contacting the catalog…</div>
   </div>
 </div>
@@ -385,6 +421,28 @@
       <button class="btn quiet" data-close>Close reader</button>
     </div>
     <iframe id="iaFrame" allowfullscreen></iframe>
+  </div>
+</div>
+
+<!-- in-app full-text reader (Plateau 2) -->
+<div id="textReader" class="veil hidden">
+  <div id="tr-book">
+    <header id="tr-head">
+      <div style="min-width:0">
+        <div class="t" id="trTitle">&mdash;</div>
+        <div class="a" id="trAuthor">&mdash;</div>
+      </div>
+      <button class="pbtn" id="btnCloseText">Return to the book</button>
+    </header>
+    <div id="tr-stage">
+      <div id="tr-viewport"><div id="tr-flow"></div></div>
+      <button class="tr-edge left" id="trPrev" aria-label="Previous page">&#8249;</button>
+      <button class="tr-edge right" id="trNext" aria-label="Next page">&#8250;</button>
+    </div>
+    <footer id="tr-foot">
+      <span id="trPage">&nbsp;</span>
+      <span>Project Gutenberg &middot; public domain</span>
+    </footer>
   </div>
 </div>
 
@@ -626,12 +684,26 @@ const Catalog = (() => {
     return { si, depth: Math.floor(offset / ROOM_SIZE), slot: offset % ROOM_SIZE, doc };
   }
 
+  // Plateau 2: full plaintext of a public-domain work, proxied + cached by the catalog node.
+  async function gutenbergText(gid) {
+    if (!REMOTE_BASE) throw new Error("no catalog node configured");
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 35000);
+    try {
+      const r = await fetch(REMOTE_BASE + "/gutenberg/" + encodeURIComponent(gid), { signal: ctl.signal });
+      if (!r.ok) throw new Error("text service replied " + r.status);
+      return await r.text();
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   const coverURL = (id, size) => "https://covers.openlibrary.org/b/id/" + id + "-" + (size || "M") + ".jpg";
 
   return {
     SUBJECTS, ROOM_SIZE,
     subjectOf, pretty, keyOf,
-    loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL,
+    loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText,
     probe, remoteEnabled: () => !!REMOTE_BASE,
   };
 })();
@@ -1613,7 +1685,7 @@ const World = (() => {
   Catalog.loadRoom(0, 0);
 
   // ---------- modals ----------
-  const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal"];
+  const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal", "textReader"];
   function openModal(id) {
     MODALS.forEach((m) => $(m).classList.toggle("hidden", m !== id));
     World.setPaused(true);
@@ -1629,6 +1701,11 @@ const World = (() => {
     b.addEventListener("click", closeModals));
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeModals();
+    if (!$("textReader").classList.contains("hidden")) {
+      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") { e.preventDefault(); trGo(1); }
+      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); trGo(-1); }
+      return;
+    }
     if (!$("reader").classList.contains("hidden")) {
       if (e.key === "ArrowRight") bookStep(1);
       if (e.key === "ArrowLeft") bookStep(-1);
@@ -1791,10 +1868,19 @@ const World = (() => {
     // links
     const links = $("readerLinks");
     links.innerHTML = "";
+    const hasText = !!(b.gutenberg && Catalog.remoteEnabled());
+    if (hasText) {
+      const t = document.createElement("button");
+      t.className = "pbtn";
+      t.textContent = "Read the text \u2014 here";
+      t.addEventListener("click", () => openTextReader(b));
+      links.appendChild(t);
+    }
     if (b.ia) {
       const r = document.createElement("button");
       r.className = "pbtn";
-      r.textContent = b.access === "public" ? "Read in full \u2014 here" : "Preview here";
+      r.textContent = hasText ? "Scanned pages" :
+        (b.access === "public" ? "Read in full \u2014 here" : "Preview here");
       r.addEventListener("click", () => {
         $("iaTitle").textContent = b.title;
         $("iaFrame").src = "https://archive.org/embed/" + encodeURIComponent(b.ia);
@@ -1818,11 +1904,139 @@ const World = (() => {
     links.appendChild(ol);
     const note = document.createElement("div");
     note.style.cssText = "flex-basis:100%;font-size:11.5px;color:#7a6336;font-style:italic;margin-top:4px";
-    if (b.access === "public") note.textContent = "Public domain \u2014 every page is open.";
+    if (b.access === "public") note.textContent = hasText
+      ? "Public domain \u2014 the complete text opens right here."
+      : "Public domain \u2014 every page is open.";
     else if (b.ia) note.textContent = "In copyright \u2014 the Archive shows a preview; a free archive.org account borrows the full book.";
     else note.textContent = "No scan exists for this one yet \u2014 metadata only.";
     links.appendChild(note);
   }
+
+  // ---------- in-app Gutenberg text reader (Plateau 2) ----------
+  // The browser typesets the book: the text flows into fixed-height CSS columns,
+  // one column per page, and turning a page is a horizontal translate.
+  const trTextCache = new Map(); // gutenberg id -> stripped plaintext
+  const TR_GAP = 64;
+  let TR = null; // { paras, mounted, page, pages, gid }
+
+  function toParagraphs(t) {
+    // Gutenberg plaintext hard-wraps lines inside paragraphs; unwrap them,
+    // but keep line breaks for verse and style chapter headings.
+    const out = [];
+    for (const block of t.split(/\n{2,}/)) {
+      const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (!lines.length) continue;
+      const flat = lines.join(" ");
+      const verse = lines.length > 2 && lines.every((l) => l.length < 52);
+      const heading = !verse && lines.length <= 2 && flat.length < 64 &&
+        (/^(chapter|book|part|canto|act|scene|volume|stave|letter)\b/i.test(flat) ||
+         (flat === flat.toUpperCase() && /[A-Z]/.test(flat)));
+      out.push({ text: verse ? lines.join("\n") : flat, verse, heading });
+    }
+    return out;
+  }
+
+  function trMeasure() {
+    const W = $("tr-viewport").clientWidth;
+    const flow = $("tr-flow");
+    flow.style.columnWidth = W + "px";
+    TR.pages = Math.max(1, Math.round((flow.scrollWidth + TR_GAP) / (W + TR_GAP)));
+  }
+
+  function trMount(n) {
+    const flow = $("tr-flow");
+    const frag = document.createDocumentFragment();
+    const end = Math.min(TR.paras.length, TR.mounted + n);
+    for (let i = TR.mounted; i < end; i++) {
+      const p = TR.paras[i];
+      const el = document.createElement("p");
+      if (p.heading) el.className = "chap";
+      else if (p.verse) el.className = "verse";
+      else if (i === 0) el.className = "first";
+      el.textContent = p.text;
+      frag.appendChild(el);
+    }
+    TR.mounted = end;
+    flow.appendChild(frag);
+    trMeasure();
+  }
+
+  function trApply() {
+    const W = $("tr-viewport").clientWidth;
+    $("tr-flow").style.transform = "translateX(" + (-TR.page * (W + TR_GAP)) + "px)";
+    const done = TR.mounted >= TR.paras.length;
+    const est = done ? TR.pages
+      : Math.ceil(TR.pages * (TR.paras.length / Math.max(1, TR.mounted)));
+    $("trPage").textContent = "page " + (TR.page + 1) + " of " + (done ? TR.pages : "about " + est);
+    try { // remember roughly where the reader is, per book
+      const all = JSON.parse(localStorage.getItem("hexlib:read") || "{}");
+      const paraIdx = Math.round((TR.page / Math.max(1, TR.pages)) * TR.mounted);
+      all[TR.gid] = Math.min(0.999, paraIdx / Math.max(1, TR.paras.length));
+      localStorage.setItem("hexlib:read", JSON.stringify(all));
+    } catch (e) {}
+  }
+
+  function trGo(d) {
+    if (!TR) return;
+    const target = TR.page + d;
+    if (target < 0) return;
+    let guard = 0; // typeset more of the book as the reader approaches the frontier
+    while (TR.mounted < TR.paras.length && target > TR.pages - 3 && guard++ < 40) trMount(150);
+    TR.page = Math.min(target, TR.pages - 1);
+    trApply();
+  }
+
+  function openTextReader(b) {
+    $("trTitle").textContent = "\u201C" + b.title + "\u201D";
+    $("trAuthor").textContent = (b.author || "unknown") + " \u00b7 Gutenberg #" + b.gutenberg;
+    const flow = $("tr-flow");
+    flow.innerHTML = '<p class="loading">fetching the complete text\u2026</p>';
+    flow.style.transform = "translateX(0)";
+    flow.style.columnWidth = "";
+    $("trPage").textContent = "\u00a0";
+    openModal("textReader");
+    TR = null;
+    const gid = b.gutenberg;
+    const ready = (text) => {
+      if ($("textReader").classList.contains("hidden")) return; // closed while loading
+      flow.innerHTML = "";
+      TR = { paras: toParagraphs(text), mounted: 0, page: 0, pages: 1, gid };
+      trMount(220);
+      let pct = 0;
+      try { pct = JSON.parse(localStorage.getItem("hexlib:read") || "{}")[gid] || 0; } catch (e) {}
+      if (pct > 0.002) { // resume: typeset the whole book, then land on the saved spot
+        let guard = 0;
+        while (TR.mounted < TR.paras.length && guard++ < 80) trMount(250);
+        TR.page = Math.min(TR.pages - 1, Math.round(pct * TR.pages));
+      }
+      trApply();
+    };
+    if (trTextCache.has(gid)) return ready(trTextCache.get(gid));
+    Catalog.gutenbergText(gid).then((text) => {
+      trTextCache.set(gid, text);
+      ready(text);
+    }).catch((e) => {
+      if ($("textReader").classList.contains("hidden")) return;
+      flow.innerHTML = "";
+      const er = document.createElement("p");
+      er.className = "loading";
+      er.textContent = "The text could not be fetched \u2014 " + (e.message || "network error") +
+        ". The scanned pages or the Gutenberg site may still serve it.";
+      flow.appendChild(er);
+    });
+  }
+
+  $("trPrev").addEventListener("click", () => trGo(-1));
+  $("trNext").addEventListener("click", () => trGo(1));
+  $("btnCloseText").addEventListener("click", () => openModal("reader"));
+  window.addEventListener("resize", () => {
+    if (TR && !$("textReader").classList.contains("hidden")) {
+      const pct = TR.pages > 1 ? TR.page / (TR.pages - 1) : 0;
+      trMeasure();
+      TR.page = Math.min(TR.pages - 1, Math.round(pct * (TR.pages - 1)));
+      trApply();
+    }
+  });
 
   function bookStep(d) {
     if (!reader || !reader.fromShelf) return;
