@@ -507,6 +507,7 @@ const Catalog = (() => {
   })();
   let remoteState = REMOTE_BASE ? "unknown" : "off"; // unknown | up | down | off
   let remoteInfo = null;
+  let remoteDownAt = 0;
 
   async function remoteJSON(pathq, timeoutMs) {
     const ctl = new AbortController();
@@ -521,7 +522,11 @@ const Catalog = (() => {
   }
 
   async function probe() {
-    if (remoteState === "off" || remoteState === "down") return null;
+    if (remoteState === "off") return null;
+    if (remoteState === "down") {
+      if (Date.now() - remoteDownAt < 45000) return null;
+      remoteState = "unknown"; // the node may have come back — try again
+    }
     if (remoteState === "up") return remoteInfo;
     try {
       remoteInfo = await remoteJSON("/version", 5000);
@@ -529,6 +534,7 @@ const Catalog = (() => {
       return remoteInfo;
     } catch (e) {
       remoteState = "down";
+      remoteDownAt = Date.now();
       console.warn("[catalog] self-hosted index unreachable (" + REMOTE_BASE + "): " +
         (e && e.message || e) + " \u2014 falling back to live Open Library");
       return null;
@@ -593,7 +599,7 @@ const Catalog = (() => {
           inflight.delete(k);
           return room;
         } catch (e) {
-          remoteState = "down"; // fall back to live Open Library below
+          remoteState = "down"; remoteDownAt = Date.now(); // fall back to live Open Library below
         }
       }
       const subject = subjectOf(si);
@@ -653,7 +659,7 @@ const Catalog = (() => {
       try {
         const data = await remoteJSON("/search?q=" + encodeURIComponent(q) + "&limit=" + (limit || 20), 9000);
         if (data.docs && data.docs.length) return data.docs;
-      } catch (e) { remoteState = "down"; }
+      } catch (e) { remoteState = "down"; remoteDownAt = Date.now(); }
     }
     const url = API + "?q=" + encodeURIComponent(q) +
       "&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=" + (limit || 20);
@@ -683,7 +689,7 @@ const Catalog = (() => {
   // One cheap request that lands the visitor somewhere real.
   async function randomSpot() {
     if (REMOTE_BASE && (await probe())) {
-      try { return await remoteJSON("/random", 9000); } catch (e) { remoteState = "down"; }
+      try { return await remoteJSON("/random", 9000); } catch (e) { remoteState = "down"; remoteDownAt = Date.now(); }
     }
     const si = Math.floor(Math.random() * 64);
     const offset = Math.floor(Math.random() * 2500);
