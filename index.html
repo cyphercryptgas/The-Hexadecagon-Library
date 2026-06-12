@@ -173,6 +173,12 @@
   #cross{position:absolute;top:50%;left:50%;width:4px;height:4px;margin:-2px;
     background:rgba(200,163,90,.85);border-radius:50%;box-shadow:0 0 6px rgba(255,180,94,.6)}
   #fade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .45s;z-index:35}
+  .tune-row{display:grid;grid-template-columns:150px 1fr 52px;align-items:center;gap:12px;margin:14px 0}
+  .tune-row label{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--brass)}
+  .tune-row input[type=range]{accent-color:#c8a35a;width:100%}
+  .tune-row input[type=checkbox]{accent-color:#c8a35a;justify-self:start;width:16px;height:16px}
+  .tune-row span{color:var(--brass-dim);font-size:11px;font-family:'Courier New',monospace;text-align:right}
+  .tune-note{color:var(--brass-dim);font-size:11px;font-style:italic;margin-top:18px}
 
   /* touch controls */
   #joy{position:absolute;width:108px;height:108px;border:1px solid var(--line);border-radius:50%;
@@ -304,6 +310,7 @@
     <button data-open="addressModal">ISBN / ID</button>
     <button id="btnRandom">Random</button>
     <button data-open="about">About</button>
+    <button data-open="tuneModal">Tune</button>
     <button id="btnSound" title="Ambient sound">Sound · Off</button>
   </div>
   <div id="cross"></div>
@@ -337,6 +344,7 @@
       <button data-open="searchModal">Find a Book</button>
       <button data-open="addressModal">By ISBN or ID</button>
       <button data-open="about">About the Stacks</button>
+      <button data-open="tuneModal">Tune the Library</button>
     </nav>
     <div class="epigraph">Catalog, covers and reading courtesy of Open Library &amp; the Internet Archive. Full texts of public-domain works courtesy of Project Gutenberg. The stacks are alive: they grow as the catalog grows.</div>
     <div id="bootline">contacting the catalog…</div>
@@ -419,6 +427,19 @@
 </div>
 
 <!-- about -->
+<div id="tuneModal" class="veil hidden">
+  <div class="panel" style="max-width:440px">
+    <button class="closex" data-close>×</button>
+    <h2>Tune the Library</h2>
+    <div class="rule"></div>
+    <div class="tune-row"><label for="tnSens">Look sensitivity</label><input type="range" id="tnSens" min="40" max="200" value="100"><span id="tnSensV">1.0×</span></div>
+    <div class="tune-row"><label for="tnFov">Field of view</label><input type="range" id="tnFov" min="60" max="92" value="72"><span id="tnFovV">72°</span></div>
+    <div class="tune-row"><label for="tnSpeed">Walking pace</label><input type="range" id="tnSpeed" min="70" max="170" value="100"><span id="tnSpeedV">1.0×</span></div>
+    <div class="tune-row"><label for="tnDust">Dust motes</label><input type="checkbox" id="tnDust" checked><span></span></div>
+    <p class="tune-note">Saved in this browser.</p>
+  </div>
+</div>
+
 <div id="about" class="veil hidden">
   <div class="panel">
     <button class="closex" data-close>×</button>
@@ -426,11 +447,11 @@
     <div class="rule"></div>
     <p>This is a walkable reading room for the world's published books. The shelves are drawn live from the <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> catalog — an open project of the Internet Archive holding records for tens of millions of works, the closest thing that exists to a complete public index of everything in print.</p>
     <h3>How the stacks are arranged</h3>
-    <p>Sixty-four subjects form a ring of galleries: walk through a doorway and you pass to the next subject. Each gallery holds 640 volumes — four walls, five shelves, thirty-two books. The spiral stair moves you one page deeper or shallower within every subject at once: shallow galleries hold the most-published works, and the deeper you descend, the rarer the books become.</p>
+    <p>Sixty-four subjects form a ring of galleries: walk through a doorway and you pass to the next subject. Each gallery holds 640 volumes — four walls, five shelves, thirty-two books. The spiral stair is walkable: a full turn down carries you one page deeper within every subject at once. Shallow galleries hold the most-published works; the deeper you descend, the rarer the books become — until a subject runs out, and the empty shelves below wait for books not yet written.</p>
     <h3>Spines and covers</h3>
-    <p>Each spine carries its book's actual cover art, compressed the way a real spine compresses a jacket. Approach a shelf and the covers resolve; open a book for the full jacket, the publication facts, and the description.</p>
+    <p>Nobody scans spines — only front covers — so the library binds its own. Each spine takes its color from its book's real cover, carries a vignette of the art at its head, and sets the title down the spine in type. Approach a shelf and the bindings resolve; open a book for the full jacket, the publication facts, and the description.</p>
     <h3>Reading</h3>
-    <p>Millions of these books are scanned, in three tiers. <em>Full text</em>: public-domain works open complete, every page. <em>Preview</em>: in-copyright scans show a limited preview here; a free archive.org account lets you borrow the whole book — that gate is copyright law, not a missing key. <em>Metadata only</em>: no scan exists anywhere yet. Each book is labeled before you open it, and the English-language edition is preferred where one exists.</p>
+    <p>Millions of these books are scanned, in three tiers. <em>Full text</em>: public-domain works open complete, every page. <em>Preview</em>: in-copyright scans show a limited preview here; a free archive.org account lets you borrow the whole book — that gate is copyright law, not a missing key. <em>Metadata only</em>: no scan exists anywhere yet. Each book is labeled before you open it, and the English-language edition is preferred where one exists. Public-domain texts open right here as typeset, illustrated pages — and many also carry a free human-narrated audiobook from <a href="https://librivox.org" target="_blank" rel="noopener">LibriVox</a>: press Listen and the narration follows you through the stacks.</p>
     <h3>A living library</h3>
     <p>Unlike its impossible sibling, this library changes — but on its own terms. When the self-hosted index is connected, the shelves are pinned to a monthly snapshot of the catalog (named on the landing page), so every address holds until the next snapshot. The durable bookmark across snapshots is the book itself — its ISBN or Open Library ID.</p>
     <h3>Lineage</h3>
@@ -693,7 +714,7 @@ const Catalog = (() => {
       } catch (e) { remoteState = "down"; remoteDownAt = Date.now(); }
     }
     const url = API + "?q=" + encodeURIComponent(q) +
-      "&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=" + (limit || 20);
+      "&sort=editions&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=" + (limit || 20);
     const data = await fetchJSON(url);
     return (data.docs || []).map(normalizeDoc).filter(Boolean);
   }
@@ -824,6 +845,7 @@ const World = (() => {
     return { sx, u, v, r: Math.hypot(u, v), th: Math.atan2(v, u) };
   }
   let keys = {}, paused = false, entered = false;
+  let lookSens = 1, speedMul = 1, fovWanted = 72, dustWanted = true; // user tuning
   const cb = {};
   const raycaster = new THREE.Raycaster();
   const dummy = new THREE.Object3D();
@@ -1357,6 +1379,7 @@ const World = (() => {
     camera.rotation.order = "YXZ";
     camera.position.set(0, EYE, 0);
     clock = new THREE.Clock();
+    camera.fov = fovWanted; camera.updateProjectionMatrix();
     glowTex = bulbGlowTexture();
     makeMaterials();
     makeSharedGeometry();
@@ -1369,6 +1392,7 @@ const World = (() => {
     buildBooks();
     buildSpines();
     buildDust();
+    if (dust) dust.visible = dustWanted;
     window.addEventListener("resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -1417,7 +1441,7 @@ const World = (() => {
   }
 
   function step(dt) {
-    const speed = (keys["shift"] ? 3.4 : 2.25) * dt;
+    const speed = (keys["shift"] ? 3.4 : 2.25) * speedMul * dt;
     const fwd = new THREE.Vector3();
     camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
     const right = new THREE.Vector3(fwd.z, 0, -fwd.x); // points to the player's left; signs handled below
@@ -1555,8 +1579,8 @@ const World = (() => {
     window.addEventListener("pointermove", (e) => {
       if (!entered || paused) return;
       if (plocked) {
-        player.yaw -= e.movementX * 0.0023;
-        player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - e.movementY * 0.0023));
+        player.yaw -= e.movementX * 0.0023 * lookSens;
+        player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - e.movementY * 0.0023 * lookSens));
         moved += Math.abs(e.movementX) + Math.abs(e.movementY);
         return;
       }
@@ -1606,6 +1630,12 @@ const World = (() => {
     },
     isTouch: () => matchMedia("(pointer: coarse)").matches,
     on(name, fn) { cb[name] = fn; },
+    tune(o) {
+      if (o.sens) lookSens = o.sens;
+      if (o.speed) speedMul = o.speed;
+      if (o.fov) { fovWanted = o.fov; if (camera) { camera.fov = o.fov; camera.updateProjectionMatrix(); } }
+      if (o.dust !== undefined) { dustWanted = !!o.dust; if (dust) dust.visible = dustWanted; }
+    },
     recolor(roomStrFor) { recolorBooks(roomStrFor); },
     reseed(roomStr) { flickerPhase = (fnv(roomStr) % 628) / 100; },
     placeAtCenter(faceWallDeg) {
@@ -1940,7 +1970,34 @@ const World = (() => {
   Catalog.loadRoom(0, 0);
 
   // ---------- modals ----------
-  const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal", "textReader"];
+  const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal", "textReader", "tuneModal"];
+  // ---------- tune: look, fov, pace, dust — saved per browser ----------
+  const TUNE_KEY = "hexlib:tune";
+  function applyTune(t) {
+    World.tune({ sens: t.sens || 1, speed: t.speed || 1, fov: t.fov || 72, dust: t.dust !== false });
+    $("tnSens").value = String(Math.round((t.sens || 1) * 100));
+    $("tnFov").value = String(t.fov || 72);
+    $("tnSpeed").value = String(Math.round((t.speed || 1) * 100));
+    $("tnDust").checked = t.dust !== false;
+    $("tnSensV").textContent = (t.sens || 1).toFixed(1) + "\u00d7";
+    $("tnFovV").textContent = (t.fov || 72) + "\u00b0";
+    $("tnSpeedV").textContent = (t.speed || 1).toFixed(1) + "\u00d7";
+  }
+  function tuneChanged() {
+    const t = {
+      sens: Number($("tnSens").value) / 100,
+      fov: Number($("tnFov").value),
+      speed: Number($("tnSpeed").value) / 100,
+      dust: $("tnDust").checked,
+    };
+    try { localStorage.setItem(TUNE_KEY, JSON.stringify(t)); } catch (e) {}
+    applyTune(t);
+  }
+  ["tnSens", "tnFov", "tnSpeed", "tnDust"].forEach((id) =>
+    $(id).addEventListener("input", tuneChanged));
+  try { applyTune(JSON.parse(localStorage.getItem(TUNE_KEY) || "{}")); }
+  catch (e) { applyTune({}); }
+
   function openModal(id) {
     MODALS.forEach((m) => $(m).classList.toggle("hidden", m !== id));
     World.setPaused(true);
@@ -2213,6 +2270,7 @@ const World = (() => {
 
   function toParagraphs(t) {
     t = t.replace(/\[Illustration:?[^\]]*\]/g, " "); // plaintext has no pictures, only markers
+    t = t.replace(/_([^_\n]{1,140}?)_/g, "$1");          // pg emphasis markers
     const out = [];
     for (const block of t.split(/\n{2,}/)) {
       const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -2242,6 +2300,17 @@ const World = (() => {
     const doc = new DOMParser().parseFromString(html, "text/html");
     doc.querySelectorAll("#pg-header,#pg-footer,.pg-boilerplate,script,style,link,iframe,nav,title")
       .forEach((n) => n.remove());
+    // tidy plaintext residue some HTML editions carry: _emphasis_ markers and
+    // orphaned illustration brackets
+    const tw = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, null);
+    let tn;
+    while ((tn = tw.nextNode())) {
+      let t = tn.nodeValue;
+      if (!t) continue;
+      if (t.indexOf("_") !== -1) t = t.replace(/_([^_\n]{1,140}?)_/g, "$1");
+      if (t.indexOf("]") !== -1 && /^\s*\]\s*$/.test(t)) t = "";
+      if (t !== tn.nodeValue) tn.nodeValue = t;
+    }
     const base = "https://www.gutenberg.org/cache/epub/" + gid + "/";
     doc.querySelectorAll("img").forEach((img) => {
       const src = img.getAttribute("src") || "";
