@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>The Hexadecagon Library — Every Published Book, Walkable</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#070503">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hexadecagon">
 <script>
   // Plateau 1: paste your Railway catalog URL here (e.g. "https://stacks-catalog-production.up.railway.app").
   // Leave empty to use the live Open Library API directly.
@@ -178,6 +184,11 @@
   .tune-row input[type=range]{accent-color:#c8a35a;width:100%}
   .tune-row input[type=checkbox]{accent-color:#c8a35a;justify-self:start;width:16px;height:16px}
   .tune-row span{color:var(--brass-dim);font-size:11px;font-family:'Courier New',monospace;text-align:right}
+  .tune-row select{background:rgba(0,0,0,.5);color:var(--brass);border:1px solid var(--line);font-size:12px;padding:5px 6px}
+  .installbtn{display:inline-block;margin:8px 10px 0 0;border:1px solid var(--brass);background:transparent;color:var(--amber);
+    padding:9px 16px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer}
+  .installbtn:hover{background:rgba(200,163,90,.12)}
+  #installNote{display:block;margin-top:8px;color:var(--brass-dim);font-size:12px;font-style:italic}
   .tune-note{color:var(--brass-dim);font-size:11px;font-style:italic;margin-top:18px}
 
   /* touch controls */
@@ -432,6 +443,14 @@
     <button class="closex" data-close>×</button>
     <h2>Tune the Library</h2>
     <div class="rule"></div>
+    <div class="tune-row"><label for="tnTheme">Theme</label><select id="tnTheme">
+      <option value="classic">The Library (classic)</option>
+      <option value="gothic">Gothic</option>
+      <option value="future">Futuristic</option>
+      <option value="dungeon">Dungeon · torchlight</option>
+      <option value="midnight">Midnight Observatory</option>
+      <option value="solarium">Solarium · daylight</option>
+    </select><span></span></div>
     <div class="tune-row"><label for="tnSens">Look sensitivity</label><input type="range" id="tnSens" min="40" max="200" value="100"><span id="tnSensV">1.0×</span></div>
     <div class="tune-row"><label for="tnFov">Field of view</label><input type="range" id="tnFov" min="60" max="92" value="72"><span id="tnFovV">72°</span></div>
     <div class="tune-row"><label for="tnSpeed">Walking pace</label><input type="range" id="tnSpeed" min="70" max="170" value="100"><span id="tnSpeedV">1.0×</span></div>
@@ -454,6 +473,10 @@
     <p>Millions of these books are scanned, in three tiers. <em>Full text</em>: public-domain works open complete, every page. <em>Preview</em>: in-copyright scans show a limited preview here; a free archive.org account lets you borrow the whole book — that gate is copyright law, not a missing key. <em>Metadata only</em>: no scan exists anywhere yet. Each book is labeled before you open it, and the English-language edition is preferred where one exists. Public-domain texts open right here as typeset, illustrated pages — and many also carry a free human-narrated audiobook from <a href="https://librivox.org" target="_blank" rel="noopener">LibriVox</a>: press Listen and the narration follows you through the stacks.</p>
     <h3>A living library</h3>
     <p>Unlike its impossible sibling, this library changes — but on its own terms. When the self-hosted index is connected, the shelves are pinned to a monthly snapshot of the catalog (named on the landing page), so every address holds until the next snapshot. The durable bookmark across snapshots is the book itself — its ISBN or Open Library ID.</p>
+    <h3>Carry it with you</h3>
+    <p>The library installs as an app — full screen, on your home screen or desktop, no browser chrome.
+      <button id="installBtn" class="installbtn hidden">Install the Library</button>
+      <span id="installNote"></span></p>
     <h3>Lineage</h3>
     <p>Catalog data, covers, and reading are provided by Open Library and the Internet Archive; this explorer is independent and unaffiliated. It shares its architecture with a companion piece: a true-scale Library of Babel containing every <em>possible</em> book. Between the two libraries lies the difference between everything that could be written and everything that has been.</p>
     <div class="btnrow"><button class="btn" data-close>Return</button></div>
@@ -846,6 +869,44 @@ const World = (() => {
   }
   let keys = {}, paused = false, entered = false;
   let lookSens = 1, speedMul = 1, fovWanted = 72, dustWanted = true; // user tuning
+  let lightBase = 0.92, flickAmt = 0.08, themeWanted = "classic";
+  let ambLight = null; const glowSprites = [];
+  // six dressings for the same architecture: materials, light, fog, air
+  const THEMES = {
+    classic:  { bg: 0x070503, fog: [0x0a0703, 0.082], amb: [0x241a10, 0.85], light: [0xffab5e, 0.92], flick: 0.08,
+      wood: 0x5a3d20, woodDark: 0x3a2814, stone: 0x4a4038, stoneDark: 0x2e2620, iron: 0x3b332a, brass: 0x8a6a35,
+      door: 0x241708, dimWood: 0x2c1e10, bulb: 0xffc887, glow: 0xff9a45, sprite: 0xffc080, dust: 0xffd9a8 },
+    gothic:   { bg: 0x05040a, fog: [0x070512, 0.098], amb: [0x141026, 0.72], light: [0xb9c8ff, 0.74], flick: 0.06,
+      wood: 0x3a3142, woodDark: 0x241d30, stone: 0x3a3a46, stoneDark: 0x20202e, iron: 0x2a2733, brass: 0x8a93b8,
+      door: 0x171022, dimWood: 0x1c1626, bulb: 0xcfd6ff, glow: 0x8f9fff, sprite: 0xaab8ff, dust: 0xaab4ff },
+    future:   { bg: 0x04070a, fog: [0x06090e, 0.068], amb: [0x10202a, 0.95], light: [0x9fe8ff, 0.85], flick: 0.0,
+      wood: 0x2b3a44, woodDark: 0x1b262e, stone: 0x202b33, stoneDark: 0x141c22, iron: 0x5a6a74, brass: 0x57d4e8,
+      door: 0x0e171d, dimWood: 0x16222a, bulb: 0xc8f4ff, glow: 0x55d6ff, sprite: 0x86e2ff, dust: 0x9fe8ff },
+    dungeon:  { bg: 0x030201, fog: [0x050302, 0.125], amb: [0x180e06, 0.55], light: [0xff8126, 1.05], flick: 0.22,
+      wood: 0x4a341e, woodDark: 0x2c1d10, stone: 0x3c3128, stoneDark: 0x241c14, iron: 0x32281e, brass: 0x7a5526,
+      door: 0x1b1106, dimWood: 0x201407, bulb: 0xffb24a, glow: 0xff7a1e, sprite: 0xffa24e, dust: 0xffb469 },
+    midnight: { bg: 0x030611, fog: [0x040818, 0.075], amb: [0x0e1830, 0.82], light: [0xbcd4ff, 0.80], flick: 0.03,
+      wood: 0x2e3a55, woodDark: 0x1d2740, stone: 0x29324a, stoneDark: 0x181f33, iron: 0x39435c, brass: 0xa9b6d8,
+      door: 0x10182b, dimWood: 0x141d33, bulb: 0xdfe9ff, glow: 0x9db8ff, sprite: 0xc3d4ff, dust: 0xcfdcff },
+    solarium: { bg: 0xb8c4c8, fog: [0xc6cfd2, 0.050], amb: [0x8c8478, 1.05], light: [0xfff2dc, 1.0], flick: 0.02,
+      wood: 0x9a7a4e, woodDark: 0x6e573a, stone: 0x9c948a, stoneDark: 0x7b746a, iron: 0x6b6258, brass: 0xb08d4a,
+      door: 0x584026, dimWood: 0x6a5538, bulb: 0xfff6e0, glow: 0xffe9b8, sprite: 0xffeec4, dust: 0xfff2cf },
+  };
+  function applyTheme(key) {
+    const T = THEMES[key] || THEMES.classic;
+    for (const k of ["wood", "woodDark", "stone", "stoneDark", "iron", "brass", "door", "dimWood"])
+      MAT[k].color.setHex(T[k]);
+    MAT.bulb.color.setHex(T.bulb);
+    MAT.glowFar.color.setHex(T.glow);
+    for (const sm of glowSprites) sm.color.setHex(T.sprite);
+    scene.background.setHex(T.bg);
+    scene.fog.color.setHex(T.fog[0]);
+    scene.fog.density = T.fog[1];
+    if (ambLight) { ambLight.color.setHex(T.amb[0]); ambLight.intensity = T.amb[1]; }
+    lightBase = T.light[1]; flickAmt = T.flick;
+    for (const L of lights) { L.color.setHex(T.light[0]); L.intensity = lightBase * 0.9; }
+    if (dust) dust.material.color.setHex(T.dust);
+  }
   const cb = {};
   const raycaster = new THREE.Raycaster();
   const dummy = new THREE.Object3D();
@@ -1083,6 +1144,7 @@ const World = (() => {
       const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, CEIL - 1.84, 6), MAT.iron);
       cord.position.set(x, (CEIL + 1.84) / 2 + yo, z); parent.add(cord);
       const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffc080, transparent: true, opacity: 0.5, depthWrite: false }));
+      glowSprites.push(spr.material);
       spr.scale.set(1.5, 1.5, 1); spr.position.set(x, y, z); parent.add(spr);
       if (withLight) {
         const L = new THREE.PointLight(0xffab5e, 0.92, 10.5, 2);
@@ -1383,7 +1445,8 @@ const World = (() => {
     glowTex = bulbGlowTexture();
     makeMaterials();
     makeSharedGeometry();
-    scene.add(new THREE.AmbientLight(0x241a10, 0.85));
+    ambLight = new THREE.AmbientLight(0x241a10, 0.85);
+    scene.add(ambLight);
     for (const dx of [-PITCH, 0, PITCH]) scene.add(buildRoom(dx));
     scene.add(buildVestibule(1));
     scene.add(buildVestibule(-1));
@@ -1393,6 +1456,7 @@ const World = (() => {
     buildSpines();
     buildDust();
     if (dust) dust.visible = dustWanted;
+    applyTheme(themeWanted);
     window.addEventListener("resize", () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -1413,8 +1477,9 @@ const World = (() => {
     if (entered && !paused) step(dt);
     camera.rotation.set(player.pitch, player.yaw, 0);
     if (!reduceMotion) {
-      const f = 0.9 + 0.08 * Math.sin(t * 6.3 + flickerPhase) * Math.sin(t * 1.7 + flickerPhase * 2.1) + 0.02 * Math.sin(t * 23 + flickerPhase);
-      for (const L of lights) L.intensity = 0.92 * f;
+      const f = 0.9 + flickAmt * Math.sin(t * 6.3 + flickerPhase) * Math.sin(t * 1.7 + flickerPhase * 2.1) +
+        flickAmt * 0.25 * Math.sin(t * 23 + flickerPhase);
+      for (const L of lights) L.intensity = lightBase * f;
       if (dust) {
         const p = dust.geometry.attributes.position;
         for (let i = 0; i < p.count; i++) {
@@ -1635,6 +1700,7 @@ const World = (() => {
       if (o.speed) speedMul = o.speed;
       if (o.fov) { fovWanted = o.fov; if (camera) { camera.fov = o.fov; camera.updateProjectionMatrix(); } }
       if (o.dust !== undefined) { dustWanted = !!o.dust; if (dust) dust.visible = dustWanted; }
+      if (o.theme) { themeWanted = THEMES[o.theme] ? o.theme : "classic"; if (scene) applyTheme(themeWanted); }
     },
     recolor(roomStrFor) { recolorBooks(roomStrFor); },
     reseed(roomStr) { flickerPhase = (fnv(roomStr) % 628) / 100; },
@@ -1971,10 +2037,23 @@ const World = (() => {
 
   // ---------- modals ----------
   const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal", "textReader", "tuneModal"];
-  // ---------- tune: look, fov, pace, dust — saved per browser ----------
+  // ---------- tune: theme, look, fov, pace, dust — saved per browser ----------
   const TUNE_KEY = "hexlib:tune";
+  const THEME_UI = { // [brass, amber, brass-dim] — the chrome follows the room
+    classic: ["#9a7b4f", "#d8a85c", "#6e5837"],
+    gothic: ["#8b95c0", "#c3cdfa", "#5d6588"],
+    future: ["#5fc6d8", "#9ff1ff", "#3e8a98"],
+    dungeon: ["#a06a2e", "#ffae54", "#6e4a22"],
+    midnight: ["#93a7d8", "#cfdcff", "#62739c"],
+    solarium: ["#8a6f3e", "#e8c87c", "#65522f"],
+  };
   function applyTune(t) {
-    World.tune({ sens: t.sens || 1, speed: t.speed || 1, fov: t.fov || 72, dust: t.dust !== false });
+    const theme = THEME_UI[t.theme] ? t.theme : "classic";
+    World.tune({ sens: t.sens || 1, speed: t.speed || 1, fov: t.fov || 72,
+      dust: t.dust !== false, theme });
+    const ui = THEME_UI[theme], rs = document.documentElement.style;
+    rs.setProperty("--brass", ui[0]); rs.setProperty("--amber", ui[1]); rs.setProperty("--brass-dim", ui[2]);
+    $("tnTheme").value = theme;
     $("tnSens").value = String(Math.round((t.sens || 1) * 100));
     $("tnFov").value = String(t.fov || 72);
     $("tnSpeed").value = String(Math.round((t.speed || 1) * 100));
@@ -1985,6 +2064,7 @@ const World = (() => {
   }
   function tuneChanged() {
     const t = {
+      theme: $("tnTheme").value,
       sens: Number($("tnSens").value) / 100,
       fov: Number($("tnFov").value),
       speed: Number($("tnSpeed").value) / 100,
@@ -1993,10 +2073,44 @@ const World = (() => {
     try { localStorage.setItem(TUNE_KEY, JSON.stringify(t)); } catch (e) {}
     applyTune(t);
   }
-  ["tnSens", "tnFov", "tnSpeed", "tnDust"].forEach((id) =>
+  ["tnTheme", "tnSens", "tnFov", "tnSpeed", "tnDust"].forEach((id) =>
     $(id).addEventListener("input", tuneChanged));
   try { applyTune(JSON.parse(localStorage.getItem(TUNE_KEY) || "{}")); }
   catch (e) { applyTune({}); }
+
+  // ---------- install as an app ----------
+  let installPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    $("installBtn").classList.remove("hidden");
+    $("installNote").textContent = "";
+  });
+  $("installBtn").addEventListener("click", async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const c = await installPrompt.userChoice;
+    installPrompt = null;
+    if (c && c.outcome === "accepted") $("installBtn").classList.add("hidden");
+  });
+  window.addEventListener("appinstalled", () => {
+    $("installBtn").classList.add("hidden");
+    $("installNote").textContent = "Installed \u2014 the library is on your home screen.";
+    toast("The library is installed");
+  });
+  (function installNote() {
+    const standalone = matchMedia("(display-mode: standalone)").matches ||
+      navigator.standalone === true;
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (standalone) $("installNote").textContent = "You\u2019re reading in the installed app.";
+    else if (isIOS) $("installNote").textContent =
+      "On iPhone or iPad: open this page in Safari, tap Share, then \u201cAdd to Home Screen\u201d.";
+    else $("installNote").textContent =
+      "Your browser will offer the install button here once the page settles.";
+  })();
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
 
   function openModal(id) {
     MODALS.forEach((m) => $(m).classList.toggle("hidden", m !== id));
