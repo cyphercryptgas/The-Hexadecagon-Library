@@ -123,6 +123,9 @@
   .tr-edge:hover,.tr-edge:focus-visible{color:#4a3517;outline:none}
   .tr-edge.left:hover{background:linear-gradient(to right,rgba(60,40,16,.08),transparent)}
   .tr-edge.right:hover{background:linear-gradient(to left,rgba(60,40,16,.08),transparent)}
+  #trListen{border:1px solid var(--line);background:transparent;color:var(--brass);padding:7px 12px;
+    font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer}
+  #trListen:hover{color:var(--amber);border-color:var(--brass)}
   #tr-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
     padding:10px 26px 14px;border-top:1px solid rgba(60,40,16,.35);
     font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#6e5530}
@@ -134,7 +137,7 @@
   }
 
   /* ---------- LibriVox player dock (Plateau 3) ---------- */
-  #player{position:fixed;left:14px;bottom:14px;z-index:60;display:flex;align-items:center;gap:10px;
+  #player{position:fixed;left:14px;bottom:14px;z-index:70;display:flex;align-items:center;gap:10px;
     background:rgba(7,5,3,.88);border:1px solid var(--line);border-left:2px solid var(--brass);
     padding:8px 12px;max-width:min(94vw,660px);backdrop-filter:blur(3px)}
   #player img{width:36px;height:52px;object-fit:cover;border:1px solid var(--line)}
@@ -184,7 +187,8 @@
   .tune-row input[type=range]{accent-color:#c8a35a;width:100%}
   .tune-row input[type=checkbox]{accent-color:#c8a35a;justify-self:start;width:16px;height:16px}
   .tune-row span{color:var(--brass-dim);font-size:11px;font-family:'Courier New',monospace;text-align:right}
-  .tune-row select{background:rgba(0,0,0,.5);color:var(--brass);border:1px solid var(--line);font-size:12px;padding:5px 6px}
+  .tune-row select{background:#15100a;color:var(--paper);border:1px solid var(--line);font-size:12px;padding:5px 6px}
+  .tune-row select option{background:#15100a;color:var(--paper)}
   .installbtn{display:inline-block;margin:8px 10px 0 0;border:1px solid var(--brass);background:transparent;color:var(--amber);
     padding:9px 16px;font-size:11px;letter-spacing:.18em;text-transform:uppercase;cursor:pointer}
   .installbtn:hover{background:rgba(200,163,90,.12)}
@@ -455,6 +459,8 @@
     <div class="tune-row"><label for="tnFov">Field of view</label><input type="range" id="tnFov" min="60" max="92" value="72"><span id="tnFovV">72°</span></div>
     <div class="tune-row"><label for="tnSpeed">Walking pace</label><input type="range" id="tnSpeed" min="70" max="170" value="100"><span id="tnSpeedV">1.0×</span></div>
     <div class="tune-row"><label for="tnDust">Dust motes</label><input type="checkbox" id="tnDust" checked><span></span></div>
+    <div class="tune-row"><label for="tnFull">Full texts only</label><input type="checkbox" id="tnFull"><span></span></div>
+    <p class="tune-note" style="margin-top:2px">Full texts only hides every book that can’t be read complete, right here — the shelves thin out, but every spine opens.</p>
     <p class="tune-note">Saved in this browser.</p>
   </div>
 </div>
@@ -511,6 +517,7 @@
     </div>
     <footer id="tr-foot">
       <span id="trPage">&nbsp;</span>
+      <button id="trListen" class="hidden">&#9654;&nbsp; Listen along</button>
       <span>Project Gutenberg &middot; public domain</span>
     </footer>
   </div>
@@ -1253,12 +1260,13 @@ const World = (() => {
   function makeFlame(sc) {
     const g = new THREE.Group();
     const m = new THREE.MeshBasicMaterial({
-      map: TEX.flame, transparent: true, depthWrite: false,
+      map: TEX.flame, transparent: true, depthWrite: false, fog: false,
       side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
     });
-    for (const ry of [0, Math.PI / 2]) {
-      const p = new THREE.Mesh(new THREE.PlaneGeometry(0.15 * sc, 0.32 * sc), m);
-      p.rotation.y = ry; p.position.y = 0.16 * sc;
+    for (const ry of [0, Math.PI / 2, Math.PI / 4]) {
+      const p = new THREE.Mesh(new THREE.PlaneGeometry(0.16 * sc, 0.34 * sc), m);
+      p.rotation.y = ry; p.position.y = 0.17 * sc;
+      p.renderOrder = 3;
       g.add(p);
     }
     flames.push(g);
@@ -1364,15 +1372,24 @@ const World = (() => {
       placeOnWall(p, a, APO - 0.10, CEIL / 2, sgn * (SHELF_W / 2 + 0.05)); fut.add(p);
     }
     g.add(fut);
-    // --- dungeon: an iron torch bracket on the wall, fire and all ---
+    // --- dungeon: iron sconces on the piers, fire and all ---
     const dng = new THREE.Group(); dng.name = "set-dungeon"; dng.visible = false;
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.035, 0.035), MAT.iron);
-    placeOnWall(arm, a, APO - 0.22, 2.02, 0); dng.add(arm);
-    const cup2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.022, 0.09, 8), MAT.iron);
-    placeOnWall(cup2, a, APO - 0.34, 2.05, 0); dng.add(cup2);
-    const fl2 = makeFlame(1.0);
-    placeOnWall(fl2, a, APO - 0.34, 2.09, 0);
-    dng.add(fl2);
+    const armGeo = new THREE.BoxGeometry(0.26, 0.04, 0.04);
+    const cupGeo = new THREE.CylinderGeometry(0.06, 0.026, 0.11, 8);
+    const collarGeo = new THREE.TorusGeometry(0.055, 0.012, 6, 12);
+    for (const lat of [-SHELF_W / 2 - 0.10, SHELF_W / 2 + 0.10]) {
+      const arm = new THREE.Mesh(armGeo, MAT.iron);
+      placeOnWall(arm, a, APO - 0.24, 1.92, lat); dng.add(arm);
+      const cup2 = new THREE.Mesh(cupGeo, MAT.brass);
+      placeOnWall(cup2, a, APO - 0.38, 1.96, lat); dng.add(cup2);
+      const collar = new THREE.Mesh(collarGeo, MAT.brass);
+      placeOnWall(collar, a, APO - 0.38, 2.0, lat);
+      collar.rotation.x = Math.PI / 2;
+      dng.add(collar);
+      const fl2 = makeFlame(1.5);
+      placeOnWall(fl2, a, APO - 0.38, 2.01, lat);
+      dng.add(fl2);
+    }
     g.add(dng);
     return g;
   }
@@ -2312,6 +2329,7 @@ const World = (() => {
     const room = curRoom();
     const b = room ? room.books[q] : undefined;
     if (b === null) return; // empty slot — the book itself is hidden
+    if (hiddenByFilter(b)) return; // filtered off the shelf
     if (b === undefined) {  // still fetching
       ctx.fillStyle = "rgba(231,217,184,0.07)";
       ctx.fillRect(x + 8 * k, y + h * 0.42, w - 16 * k, h * 0.16);
@@ -2333,9 +2351,15 @@ const World = (() => {
   function updateSlip() {
     const room = curRoom();
     const got = room && room.complete ? room.got : (room ? room.got : 0);
+    let label = got + " of 640 shelved";
+    if (FULL_ONLY && room && room.complete) {
+      let n = 0;
+      for (let q = 0; q < 640; q++) if (room.books[q] && !hiddenByFilter(room.books[q])) n++;
+      label = n + " readable of 640";
+    }
     $("slipAddr").textContent =
       Catalog.pretty(Catalog.subjectOf(si)) + " \u00b7 depth " + depth + " \u00b7 " +
-      (room && room.error ? "offline" : got + " of 640 shelved");
+      (room && room.error ? "offline" : label);
     $("slip").title = "The famous shelve shallow; descend for the rare";
   }
 
@@ -2344,7 +2368,8 @@ const World = (() => {
       const r = Catalog.peekRoom(((si + slot) % 64 + 64) % 64, depth);
       const empty = new Set();
       if (r && r.complete) {
-        for (let q = 0; q < 640; q++) if (r.books[q] === null) empty.add(q);
+        for (let q = 0; q < 640; q++)
+          if (r.books[q] === null || hiddenByFilter(r.books[q])) empty.add(q);
       }
       World.setEmptySlots(slot, empty);
     }
@@ -2419,6 +2444,10 @@ const World = (() => {
 
   // ---------- modals ----------
   const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal", "textReader", "tuneModal"];
+  // ---------- full-texts-only: hide everything that can't be read complete, here ----------
+  let FULL_ONLY = false;
+  const hiddenByFilter = (b) => FULL_ONLY && b && !b.gutenberg && b.access !== "public";
+
   // ---------- tune: theme, look, fov, pace, dust — saved per browser ----------
   const TUNE_KEY = "hexlib:tune";
   const THEME_UI = { // [brass, amber, brass-dim] — the chrome follows the room
@@ -2440,6 +2469,10 @@ const World = (() => {
     $("tnFov").value = String(t.fov || 72);
     $("tnSpeed").value = String(Math.round((t.speed || 1) * 100));
     $("tnDust").checked = t.dust !== false;
+    $("tnFull").checked = t.full === true;
+    const wasFull = FULL_ONLY;
+    FULL_ONLY = t.full === true;
+    if (wasFull !== FULL_ONLY && typeof curRoom === "function" && curRoom()) afterRoomChange();
     $("tnSensV").textContent = (t.sens || 1).toFixed(1) + "\u00d7";
     $("tnFovV").textContent = (t.fov || 72) + "\u00b0";
     $("tnSpeedV").textContent = (t.speed || 1).toFixed(1) + "\u00d7";
@@ -2451,11 +2484,12 @@ const World = (() => {
       fov: Number($("tnFov").value),
       speed: Number($("tnSpeed").value) / 100,
       dust: $("tnDust").checked,
+      full: $("tnFull").checked,
     };
     try { localStorage.setItem(TUNE_KEY, JSON.stringify(t)); } catch (e) {}
     applyTune(t);
   }
-  ["tnTheme", "tnSens", "tnFov", "tnSpeed", "tnDust"].forEach((id) =>
+  ["tnTheme", "tnSens", "tnFov", "tnSpeed", "tnDust", "tnFull"].forEach((id) =>
     $(id).addEventListener("input", tuneChanged));
   try { applyTune(JSON.parse(localStorage.getItem(TUNE_KEY) || "{}")); }
   catch (e) { applyTune({}); }
@@ -2540,7 +2574,7 @@ const World = (() => {
     const room = curRoom();
     if (!room) return false;
     const q = (meta.wall - 1) * 160 + (meta.shelf - 1) * 32 + (meta.book - 1);
-    return !!room.books[q];
+    return !!room.books[q] && !hiddenByFilter(room.books[q]);
   });
   World.on("hover", (meta) => {
     currentHover = meta;
@@ -2884,7 +2918,25 @@ const World = (() => {
     trApply();
   }
 
+  let TR_BOOK = null;
   function openTextReader(b) {
+    TR_BOOK = b;
+    $("trListen").classList.add("hidden");
+    const maybeShowListen = () => {
+      if (TR_BOOK === b && b._audio && b._audio.sections && b._audio.sections.length)
+        $("trListen").classList.remove("hidden");
+    };
+    maybeShowListen();
+    if (b._audio === undefined && Catalog.remoteEnabled()) {
+      b._audio = null;
+      Catalog.findAudio(b.title, b.author).then((a) => {
+        b._audio = (a && a.found) ? a : false;
+        maybeShowListen();
+      });
+    } else if (b._audio === null) { // a lookup from the card is already in flight
+      setTimeout(maybeShowListen, 2500);
+      setTimeout(maybeShowListen, 6000);
+    }
     $("trTitle").textContent = "\u201C" + b.title + "\u201D";
     $("trAuthor").textContent = (b.author || "unknown") + " \u00b7 Gutenberg #" + b.gutenberg;
     const flow = $("tr-flow");
@@ -2928,6 +2980,16 @@ const World = (() => {
   $("trPrev").addEventListener("click", () => trGo(-1));
   $("trNext").addEventListener("click", () => trGo(1));
   $("btnCloseText").addEventListener("click", () => openModal("reader"));
+  $("trListen").addEventListener("click", () => {
+    const b = TR_BOOK;
+    if (!b || !b._audio || !b._audio.sections || !b._audio.sections.length) {
+      toast("No recording found for this one"); return;
+    }
+    const frac = (TR && TR.pages) ? Math.min(0.999, TR.page / Math.max(1, TR.pages)) : 0;
+    const sec = Math.min(b._audio.sections.length - 1, Math.floor(frac * b._audio.sections.length));
+    openPlayer(b, b._audio, sec);
+    toast("Chapter " + (sec + 1) + " \u2014 narration follows your page");
+  });
   window.addEventListener("resize", () => {
     if (TR && !$("textReader").classList.contains("hidden")) {
       const pct = TR.pages > 1 ? TR.page / (TR.pages - 1) : 0;
@@ -2964,7 +3026,7 @@ const World = (() => {
       () => { try { plAudio.currentTime = t; } catch (e) {} }, { once: true });
     plAudio.play().catch(() => {});
   }
-  function openPlayer(b, a) {
+  function openPlayer(b, a, startSec) {
     plSave();
     PL = { b, a, idx: 0 };
     $("plTitle").textContent = b.title;
@@ -2980,9 +3042,12 @@ const World = (() => {
       sel.appendChild(o);
     });
     $("player").classList.remove("hidden");
-    let saved = null;
-    try { saved = JSON.parse(localStorage.getItem("hexlib:audio") || "{}")[b.key] || null; } catch (e) {}
-    plLoad(saved ? saved.i : 0, saved ? saved.t : 0);
+    if (startSec != null) { plLoad(startSec, 0); }
+    else {
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem("hexlib:audio") || "{}")[b.key] || null; } catch (e) {}
+      plLoad(saved ? saved.i : 0, saved ? saved.t : 0);
+    }
   }
   plAudio.addEventListener("timeupdate", () => {
     if (!PL) return;
@@ -3020,7 +3085,7 @@ const World = (() => {
     for (let guard = 0; guard < 641; guard++) {
       i += d;
       if (i < 0 || i >= 640) return; // end of the shelf run
-      if (reader.list[i]) { reader.idx = i; renderReader(); return; }
+      if (reader.list[i] && !hiddenByFilter(reader.list[i])) { reader.idx = i; renderReader(); return; }
     }
   }
   $("btnPrev").addEventListener("click", () => bookStep(-1));
