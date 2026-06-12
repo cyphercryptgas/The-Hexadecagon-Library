@@ -354,7 +354,7 @@
       <button id="btnEnter">Enter the Library</button>
       <button data-open="searchModal">Find a Book</button>
       <button data-open="addressModal">By ISBN or ID</button>
-      <button data-open="about">About the Stacks</button>
+      <button data-open="about">About the Library</button>
       <button data-open="tuneModal">Tune the Library</button>
     </nav>
     <div class="epigraph">Catalog, covers and reading courtesy of Open Library &amp; the Internet Archive. Full texts of public-domain works courtesy of Project Gutenberg. The stacks are alive: they grow as the catalog grows.</div>
@@ -462,7 +462,7 @@
 <div id="about" class="veil hidden">
   <div class="panel">
     <button class="closex" data-close>×</button>
-    <h2>About the Stacks</h2>
+    <h2>About the Library</h2>
     <div class="rule"></div>
     <p>This is a walkable reading room for the world's published books. The shelves are drawn live from the <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> catalog — an open project of the Internet Archive holding records for tens of millions of works, the closest thing that exists to a complete public index of everything in print.</p>
     <h3>How the stacks are arranged</h3>
@@ -870,30 +870,38 @@ const World = (() => {
   let keys = {}, paused = false, entered = false;
   let lookSens = 1, speedMul = 1, fovWanted = 72, dustWanted = true; // user tuning
   let lightBase = 0.92, flickAmt = 0.08, themeWanted = "classic";
-  let ambLight = null; const glowSprites = [];
+  let ambLight = null; const glowSprites = [], flames = [];
+  let curThemeKey = "classic";
   // six dressings for the same architecture: materials, light, fog, air
   const THEMES = {
-    classic:  { bg: 0x070503, fog: [0x0a0703, 0.082], amb: [0x241a10, 0.85], light: [0xffab5e, 0.92], flick: 0.08,
+    classic:  { fixture: "pendant", step: 0x5a3d20,
+      bg: 0x070503, fog: [0x0a0703, 0.082], amb: [0x241a10, 0.85], light: [0xffab5e, 0.92], flick: 0.08,
       wood: 0x5a3d20, woodDark: 0x3a2814, stone: 0x4a4038, stoneDark: 0x2e2620, iron: 0x3b332a, brass: 0x8a6a35,
       door: 0x241708, dimWood: 0x2c1e10, bulb: 0xffc887, glow: 0xff9a45, sprite: 0xffc080, dust: 0xffd9a8 },
-    gothic:   { bg: 0x05040a, fog: [0x070512, 0.098], amb: [0x141026, 0.72], light: [0xb9c8ff, 0.74], flick: 0.06,
+    gothic:   { fixture: "pendant", step: 0x343442,
+      bg: 0x05040a, fog: [0x070512, 0.098], amb: [0x141026, 0.72], light: [0xb9c8ff, 0.74], flick: 0.06,
       wood: 0x3a3142, woodDark: 0x241d30, stone: 0x3a3a46, stoneDark: 0x20202e, iron: 0x2a2733, brass: 0x8a93b8,
       door: 0x171022, dimWood: 0x1c1626, bulb: 0xcfd6ff, glow: 0x8f9fff, sprite: 0xaab8ff, dust: 0xaab4ff },
-    future:   { bg: 0x04070a, fog: [0x06090e, 0.068], amb: [0x10202a, 0.95], light: [0x9fe8ff, 0.85], flick: 0.0,
+    future:   { fixture: "panel", step: 0x263039,
+      bg: 0x04070a, fog: [0x06090e, 0.068], amb: [0x10202a, 0.95], light: [0x9fe8ff, 0.85], flick: 0.0,
       wood: 0x2b3a44, woodDark: 0x1b262e, stone: 0x202b33, stoneDark: 0x141c22, iron: 0x5a6a74, brass: 0x57d4e8,
       door: 0x0e171d, dimWood: 0x16222a, bulb: 0xc8f4ff, glow: 0x55d6ff, sprite: 0x86e2ff, dust: 0x9fe8ff },
-    dungeon:  { bg: 0x030201, fog: [0x050302, 0.125], amb: [0x180e06, 0.55], light: [0xff8126, 1.05], flick: 0.22,
+    dungeon:  { fixture: "torch", step: 0x57514a,
+      bg: 0x030201, fog: [0x050302, 0.125], amb: [0x180e06, 0.55], light: [0xff8126, 1.05], flick: 0.22,
       wood: 0x4a341e, woodDark: 0x2c1d10, stone: 0x3c3128, stoneDark: 0x241c14, iron: 0x32281e, brass: 0x7a5526,
       door: 0x1b1106, dimWood: 0x201407, bulb: 0xffb24a, glow: 0xff7a1e, sprite: 0xffa24e, dust: 0xffb469 },
-    midnight: { bg: 0x030611, fog: [0x040818, 0.075], amb: [0x0e1830, 0.82], light: [0xbcd4ff, 0.80], flick: 0.03,
+    midnight: { fixture: "pendant", step: 0x222b44,
+      bg: 0x030611, fog: [0x040818, 0.075], amb: [0x0e1830, 0.82], light: [0xbcd4ff, 0.80], flick: 0.03,
       wood: 0x2e3a55, woodDark: 0x1d2740, stone: 0x29324a, stoneDark: 0x181f33, iron: 0x39435c, brass: 0xa9b6d8,
       door: 0x10182b, dimWood: 0x141d33, bulb: 0xdfe9ff, glow: 0x9db8ff, sprite: 0xc3d4ff, dust: 0xcfdcff },
-    solarium: { bg: 0xb8c4c8, fog: [0xc6cfd2, 0.050], amb: [0x8c8478, 1.05], light: [0xfff2dc, 1.0], flick: 0.02,
+    solarium: { fixture: "pendant", step: 0x8d857a,
+      bg: 0xb8c4c8, fog: [0xc6cfd2, 0.050], amb: [0x8c8478, 1.05], light: [0xfff2dc, 1.0], flick: 0.02,
       wood: 0x9a7a4e, woodDark: 0x6e573a, stone: 0x9c948a, stoneDark: 0x7b746a, iron: 0x6b6258, brass: 0xb08d4a,
       door: 0x584026, dimWood: 0x6a5538, bulb: 0xfff6e0, glow: 0xffe9b8, sprite: 0xffeec4, dust: 0xfff2cf },
   };
   function applyTheme(key) {
     const T = THEMES[key] || THEMES.classic;
+    curThemeKey = THEMES[key] ? key : "classic";
     for (const k of ["wood", "woodDark", "stone", "stoneDark", "iron", "brass", "door", "dimWood"])
       MAT[k].color.setHex(T[k]);
     MAT.bulb.color.setHex(T.bulb);
@@ -906,6 +914,15 @@ const World = (() => {
     lightBase = T.light[1]; flickAmt = T.flick;
     for (const L of lights) { L.color.setHex(T.light[0]); L.intensity = lightBase * 0.9; }
     if (dust) dust.material.color.setHex(T.dust);
+    MAT.step.color.setHex(T.step);
+    MAT.panel.color.setHex(T.bulb);
+    const fixture = T.fixture;
+    scene.traverse((o) => {
+      if (o.name === "set-pendant") o.visible = fixture === "pendant";
+      else if (o.name === "set-torch") o.visible = fixture === "torch";
+      else if (o.name === "set-panel") o.visible = fixture === "panel";
+      else if (o.name === "set-gothic") o.visible = curThemeKey === "gothic";
+    });
   }
   const cb = {};
   const raycaster = new THREE.Raycaster();
@@ -931,6 +948,10 @@ const World = (() => {
     MAT.glowFar = new THREE.MeshBasicMaterial({ color: 0xff9a45, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
     MAT.black = new THREE.MeshBasicMaterial({ color: 0x000000 });
     MAT.dimWood = new THREE.MeshStandardMaterial({ color: 0x2c1e10, roughness: 0.9 });
+    MAT.step = new THREE.MeshStandardMaterial({ color: 0x5a3d20, roughness: 0.85, metalness: 0.04 });
+    MAT.flame = new THREE.MeshBasicMaterial({ color: 0xffa53e });
+    MAT.flameCore = new THREE.MeshBasicMaterial({ color: 0xffe9b0 });
+    MAT.panel = new THREE.MeshBasicMaterial({ color: 0xc8f4ff });
   }
 
   function hexShape(r, holeR) {
@@ -998,6 +1019,22 @@ const World = (() => {
     }
     const curb = flatMesh(new THREE.ExtrudeGeometry(hexShape(SHAFT + 0.15, SHAFT), { depth: 0.09, bevelEnabled: false }), MAT.stoneDark);
     g.add(curb);
+    // gothic dressing: a finial on every post, a pinnacle at every rail midpoint
+    const trim = new THREE.Group(); trim.name = "set-gothic"; trim.visible = false;
+    const finGeo = new THREE.OctahedronGeometry(0.05);
+    const pinGeo = new THREE.ConeGeometry(0.026, 0.18, 6);
+    const apoT = RAIL * 0.8660254;
+    for (let k = 0; k < 6; k++) {
+      const a = (30 + 60 * k) * RAD;
+      const f = new THREE.Mesh(finGeo, MAT.brass);
+      f.position.set(RAIL * COS(a), 0.99, RAIL * SIN(a));
+      trim.add(f);
+      const mid = (60 + 60 * k) * RAD;
+      const p2 = new THREE.Mesh(pinGeo, MAT.brass);
+      p2.position.set(apoT * COS(mid), 1.04, apoT * SIN(mid));
+      trim.add(p2);
+    }
+    g.add(trim);
     return g;
   }
 
@@ -1011,11 +1048,27 @@ const World = (() => {
     mesh.rotation.y = -angRad;
   }
 
+  function addGothicCrown(g, a) {
+    const crown = new THREE.Group(); crown.name = "set-gothic"; crown.visible = false;
+    const spire = new THREE.ConeGeometry(0.035, 0.26, 6);
+    const tall = new THREE.ConeGeometry(0.045, 0.42, 6);
+    for (const lat of [-SHELF_W / 3, SHELF_W / 3]) {
+      const m = new THREE.Mesh(spire, MAT.brass);
+      placeOnWall(m, a, APO - 0.10, CEIL + 0.12, lat);
+      crown.add(m);
+    }
+    const c = new THREE.Mesh(tall, MAT.brass);
+    placeOnWall(c, a, APO - 0.10, CEIL + 0.20, 0);
+    crown.add(c);
+    g.add(crown);
+  }
+
   function buildShelfWall(deg) {
     const g = new THREE.Group();
     const a = deg * RAD;
     const back = new THREE.Mesh(new THREE.BoxGeometry(0.07, CEIL - 0.02, SIDE - 0.06), MAT.woodDark);
     placeOnWall(back, a, APO - 0.035, CEIL / 2, 0); g.add(back);
+    addGothicCrown(g, a);
     const boardGeo = new THREE.BoxGeometry(0.30, 0.035, SHELF_W);
     for (let i = 0; i <= 5; i++) {
       const b = new THREE.Mesh(boardGeo, MAT.wood);
@@ -1059,7 +1112,7 @@ const World = (() => {
     pole.position.set(cx, LEVEL_H * 0.6, STAIR_Z);
     g.add(pole);
     const nSteps = STEPS_PER_TURN * 7;
-    const steps = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.045, 0.26), MAT.wood, nSteps);
+    const steps = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.045, 0.26), MAT.step, nSteps);
     for (let i = 0; i < nSteps; i++) {
       const y = -LEVEL_H * 3 + i * (LEVEL_H / STEPS_PER_TURN);
       const ang = i * (Math.PI * 2 / STEPS_PER_TURN);
@@ -1138,11 +1191,34 @@ const World = (() => {
     const yo = yOff || 0;
     for (const s of [-1, 1]) {
       const x = dx, z = s * 1.58, y = 1.84 + yo;
+      // pendant lamp (classic, gothic, midnight, solarium)
+      const pend = new THREE.Group(); pend.name = "set-pendant";
       const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.085, 12, 10), MAT.bulb.clone());
-      bulb.position.set(x, y, z); parent.add(bulb);
+      bulb.position.set(x, y, z); pend.add(bulb);
       bulbMats.push(bulb.material);
       const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, CEIL - 1.84, 6), MAT.iron);
-      cord.position.set(x, (CEIL + 1.84) / 2 + yo, z); parent.add(cord);
+      cord.position.set(x, (CEIL + 1.84) / 2 + yo, z); pend.add(cord);
+      parent.add(pend);
+      // standing iron torchiere with a live flame (dungeon)
+      const torch = new THREE.Group(); torch.name = "set-torch"; torch.visible = false;
+      const pole2 = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.026, 1.46, 8), MAT.iron);
+      pole2.position.set(x, 0.73 + yo, z); torch.add(pole2);
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.028, 0.10, 8), MAT.iron);
+      cup.position.set(x, 1.50 + yo, z); torch.add(cup);
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.24, 8), MAT.flame);
+      flame.position.set(x, 1.68 + yo, z); torch.add(flame);
+      const core = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.13, 8), MAT.flameCore);
+      core.position.set(x, 1.64 + yo, z); torch.add(core);
+      flames.push(flame, core);
+      parent.add(torch);
+      // recessed light strip (futuristic)
+      const panel = new THREE.Group(); panel.name = "set-panel"; panel.visible = false;
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.014, 0.62), MAT.panel);
+      strip.position.set(x, CEIL - 0.012 + yo, z); panel.add(strip);
+      const trim2 = new THREE.Mesh(new THREE.BoxGeometry(0.70, 0.010, 0.70), MAT.iron);
+      trim2.position.set(x, CEIL - 0.004 + yo, z); panel.add(trim2);
+      parent.add(panel);
+      // the halo and the light itself serve every fixture
       const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffc080, transparent: true, opacity: 0.5, depthWrite: false }));
       glowSprites.push(spr.material);
       spr.scale.set(1.5, 1.5, 1); spr.position.set(x, y, z); parent.add(spr);
@@ -1480,6 +1556,13 @@ const World = (() => {
       const f = 0.9 + flickAmt * Math.sin(t * 6.3 + flickerPhase) * Math.sin(t * 1.7 + flickerPhase * 2.1) +
         flickAmt * 0.25 * Math.sin(t * 23 + flickerPhase);
       for (const L of lights) L.intensity = lightBase * f;
+      if (curThemeKey === "dungeon") {
+        for (let i = 0; i < flames.length; i++) {
+          const fm = flames[i];
+          fm.scale.y = 0.82 + 0.36 * Math.abs(Math.sin(t * 6.7 + i * 1.31) * Math.sin(t * 2.9 + i));
+          fm.scale.x = fm.scale.z = 0.88 + 0.16 * Math.sin(t * 9.1 + i * 2.07);
+        }
+      }
       if (dust) {
         const p = dust.geometry.attributes.position;
         for (let i = 0; i < p.count; i++) {
