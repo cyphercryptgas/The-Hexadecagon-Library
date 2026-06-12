@@ -817,7 +817,7 @@ const World = (() => {
   // walkable spiral stair: the player rides a smooth helix; depth swaps under their feet
   const stair = { on: false, thetaU: 0, h: 0 };
   const SCX = APO + VEST / 2;            // stair-pole |x| — sits exactly on the treadmill seam
-  const R_IN = 0.15, R_OUT = 0.78, R_WALK = 0.66, ENTRY_H = 0.34;
+  const R_IN = 0.15, R_OUT = 0.78, R_WALK = 0.66, ENTRY_H = 0.40, R_BOARD = STAIR_R + 0.30;
   function stairLocal(x, z) {
     const sx = x >= 0 ? 1 : -1;
     const u = x - sx * SCX, v = z - STAIR_Z;
@@ -1385,19 +1385,27 @@ const World = (() => {
         // boarding the helix: only through the low windings near the entry step
         const L = stairLocal(nx, nz);
         const hEntry = (L.th / (2 * Math.PI)) * LEVEL_H;
-        if (L.r < R_OUT && Math.abs(nx) > APO + 0.05 && Math.abs(hEntry) <= ENTRY_H) {
+        if (L.r < R_BOARD && Math.abs(nx) > APO + 0.05 && Math.abs(hEntry) <= ENTRY_H) {
+          const rr = Math.min(R_WALK, Math.max(R_IN, L.r || 1e-6));
           stair.on = true; stair.thetaU = L.th; stair.h = hEntry;
-          player.x = nx; player.z = nz;
+          player.x = L.sx * SCX + (L.u / (L.r || 1e-6)) * rr;
+          player.z = STAIR_Z + (L.v / (L.r || 1e-6)) * rr;
         } else if (walkable(nx, nz)) { player.x = nx; player.z = nz; }
         else if (walkable(nx, player.z)) player.x = nx;
         else if (walkable(player.x, nz)) player.z = nz;
       } else {
         // riding the helix
         const raw = stairLocal(nx, nz);
-        if (Math.abs(stair.h) < ENTRY_H && raw.r > R_OUT && walkable(nx, nz)) {
-          stair.on = false; stair.h = 0; // stepping off at a landing
-          player.x = nx; player.z = nz;
-        } else {
+        if (Math.abs(stair.h) < ENTRY_H && raw.r > R_WALK + 0.02) {
+          // pushing outward at a landing: hop off onto the floor if there is one
+          const ex = raw.sx * SCX + (raw.u / (raw.r || 1e-6)) * (STAIR_R + 0.20);
+          const ez = STAIR_Z + (raw.v / (raw.r || 1e-6)) * (STAIR_R + 0.20);
+          if (walkable(ex, ez)) {
+            stair.on = false; stair.h = 0;
+            player.x = ex; player.z = ez;
+          }
+        }
+        if (stair.on) {
           let px = nx, pz = nz, L = raw;
           if (L.r < R_IN || L.r > R_WALK) { // central pole inside, phantom railing outside
             const rr = Math.min(R_WALK, Math.max(R_IN, L.r || 1e-6));
@@ -1885,7 +1893,7 @@ const World = (() => {
   World.on("nearStair", (near) => {
     if (near && entered && !stairHinted) {
       stairHinted = true;
-      toast("A spiral stair \u2014 walk down for rarer shelves");
+      toast("The stair winds down behind the pole \u2014 rarer shelves below");
     }
   });
   $("touchE").addEventListener("click", () => {
