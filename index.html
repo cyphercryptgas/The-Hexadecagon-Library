@@ -1121,30 +1121,47 @@ const World = (() => {
   }
 
   // ---- books ----
-  const PALETTE = [0x5e2c1e, 0x4a3320, 0x2e3a2c, 0x27313e, 0x4d2330, 0x3c3328, 0x57422a, 0x312723];
+  // v2 spines: every book is its own object — stature, girth, depth, lean —
+  // all derived from one hash so boxes, face quads, and neighbors always agree.
+  function bookDims(w, s, b) {
+    const j = fnv(w + ":" + s + ":" + b);
+    const run = fnv(w + ":" + s + ":r" + (((b - 1) / 4) | 0)); // 4-book neighborhoods share stature
+    const t = ((j >>> 3) % 100) / 100, rt = ((run >>> 5) % 100) / 100;
+    const h = 0.225 + 0.048 * rt + 0.034 * t;                  // 0.225 .. 0.307
+    const wd = 0.052 + 0.026 * rt + 0.016 * (((j >>> 9) % 100) / 100); // fits the 0.097 slot
+    const dp = 0.185 + 0.05 * (((j >>> 6) % 100) / 100);
+    const proud = (j % 11) === 0 ? 0.016 : 0;                  // the occasional pulled-out book
+    const dist = APO - 0.07 - dp / 2 - 0.012 - (j % 7) * 0.004 - proud;
+    const yaw = (((j >>> 4) % 5) - 2) * 0.006;
+    const lean = ((j % 23) === 0 && wd < 0.07)                 // a rare narrow leaner
+      ? (((j >>> 11) & 1) ? 1 : -1) * 0.055
+      : ((((j >>> 13) % 7) - 3)) * 0.004;
+    return { j, h, wd, dp, dist, yaw, lean };
+  }
 
   function buildBooks() {
-    const geo = new THREE.BoxGeometry(0.225, 0.298, 0.080);
+    const geo = new THREE.BoxGeometry(1, 1, 1);
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0.04 });
     const count = 3 * 4 * 5 * 32;
     booksMesh = new THREE.InstancedMesh(geo, mat, count);
     const slotW = SHELF_W / 32;
+    const eu = new THREE.Euler(0, 0, 0, "YXZ");
     let i = 0;
     for (const slot of [-1, 0, 1]) {
       for (let w = 1; w <= 4; w++) {
         const a = WALL_DEG[w - 1] * RAD;
         for (let s = 1; s <= 5; s++) {
-          const board = 5 - s; // shelf 1 = topmost
-          const baseY = BOARD_Y[board] + 0.0175;
+          const boardTop = BOARD_Y[5 - s] + 0.0175;
           for (let b = 1; b <= 32; b++) {
-            const j = fnv(w + ":" + s + ":" + b);
+            const d = bookDims(w, s, b);
             const lateral = -SHELF_W / 2 + slotW * (b - 0.5);
-            const dist = APO - 0.07 - 0.1125 - 0.012 - (j % 7) * 0.004;
             dummy.position.set(
-              slot * PITCH + dist * COS(a) - lateral * SIN(a),
-              baseY + 0.149,
-              dist * SIN(a) + lateral * COS(a));
-            dummy.rotation.set(0, -a + (((j >> 4) % 5) - 2) * 0.006, 0);
+              slot * PITCH + d.dist * COS(a) - lateral * SIN(a),
+              boardTop + d.h / 2,
+              d.dist * SIN(a) + lateral * COS(a));
+            eu.set(d.lean, -a + d.yaw, 0);
+            dummy.quaternion.setFromEuler(eu);
+            dummy.scale.set(d.dp, d.h, d.wd);
             dummy.updateMatrix();
             booksMesh.setMatrixAt(i, dummy.matrix);
             bookMeta[i] = { slot, wall: w, shelf: s, book: b };
@@ -1153,17 +1170,35 @@ const World = (() => {
         }
       }
     }
+    dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); // dummy is shared downstream
     booksMesh.instanceMatrix.needsUpdate = true;
     baseIM = booksMesh.instanceMatrix.array.slice(); // for restoring hidden slots
     scene.add(booksMesh);
   }
 
+  // bindings in runs of four: multi-volume sets emerge on their own
+  const FAMILIES = [
+    [0x5e2c1e, 0x6b3324, 0x542718], // oxblood leather
+    [0x2e3a2c, 0x39472f, 0x273226], // forest cloth
+    [0x27313e, 0x2f3d4e, 0x1f2733], // navy buckram
+    [0x57422a, 0x65512f, 0x4a3a22], // tan calf
+    [0x4d2330, 0x5d2c3c, 0x3f1d28], // plum
+    [0x3c3328, 0x494032, 0x322a21], // umber
+    [0x6e5a33, 0x7a6233, 0x5d4c2b], // mustard cloth
+    [0x37464b, 0x42565c, 0x2c393d], // slate teal
+    [0xb09064, 0xbf9f74, 0x9d7f55], // paper boards
+    [0x312723, 0x3a2f29, 0x28201c], // near-black
+  ];
+
   function recolorBooks(roomStrFor) {
     for (let i = 0; i < bookMeta.length; i++) {
       const m = bookMeta[i];
-      const h = fnv(roomStrFor(m.slot) + "." + m.wall + "." + m.shelf + "." + m.book);
-      tmpColor.setHex(PALETTE[h % PALETTE.length]);
-      tmpColor.multiplyScalar(0.85 + ((h >> 8) % 100) / 320);
+      const rs = roomStrFor(m.slot);
+      const run = fnv(rs + "." + m.wall + "." + m.shelf + ".r" + (((m.book - 1) / 4) | 0));
+      const h = fnv(rs + "." + m.wall + "." + m.shelf + "." + m.book);
+      const fam = FAMILIES[run % FAMILIES.length];
+      tmpColor.setHex((h % 41) === 0 ? 0x7a1f1f : fam[h % 3]); // the rare scarlet spine
+      tmpColor.multiplyScalar(0.88 + ((h >>> 8) % 100) / 380);
       bookBaseColor[i] = tmpColor.getHex();
       booksMesh.setColorAt(i, tmpColor);
     }
@@ -1194,21 +1229,21 @@ const World = (() => {
       const a = WALL_DEG[w - 1] * RAD;
       const tx = -SIN(a), tz = COS(a); // wall tangent = viewer's right when facing the wall
       for (let s = 1; s <= 5; s++) {
-        const cy = BOARD_Y[5 - s] + 0.0175 + 0.149;
         for (let b = 1; b <= 32; b++) {
-          const j = fnv(w + ":" + s + ":" + b); // same jitter as the book itself
+          const d = bookDims(w, s, b); // identical hash to the book itself
           const lateral = -SHELF_W / 2 + slotW * (b - 0.5);
-          const dist = APO - 0.07 - 0.1125 - 0.012 - (j % 7) * 0.004;
-          const face = dist - 0.1125 - 0.004; // 4mm in front of the spine
+          const face = d.dist - d.dp / 2 - 0.004; // 4mm in front of the spine
+          const cy = BOARD_Y[5 - s] + 0.0175 + d.h / 2;
           const cx = face * COS(a) - lateral * SIN(a);
           const cz = face * SIN(a) + lateral * COS(a);
-          const hw = 0.033, hh = 0.130;
-          const corners = [
-            [cx - tx * hw, cy - hh, cz - tz * hw],
-            [cx + tx * hw, cy - hh, cz + tz * hw],
-            [cx + tx * hw, cy + hh, cz + tz * hw],
-            [cx - tx * hw, cy + hh, cz - tz * hw],
-          ];
+          const hw = d.wd / 2 * 0.86, hh = d.h / 2 * 0.88;
+          const cl = Math.cos(d.lean), sl = Math.sin(d.lean);
+          const corners = [];
+          for (const tv of [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]]) {
+            const t2 = tv[1] * sl + tv[0] * cl; // lean about the outward axis,
+            const v2 = tv[1] * cl - tv[0] * sl; // matching the box's rotation
+            corners.push([cx + tx * t2, cy + v2, cz + tz * t2]);
+          }
           for (let k = 0; k < 4; k++) {
             pos[(q * 4 + k) * 3] = corners[k][0];
             pos[(q * 4 + k) * 3 + 1] = corners[k][1];
@@ -1712,6 +1747,15 @@ const World = (() => {
     ctx.fillRect(x, y, w, h);
     ctx.fillStyle = "rgba(0,0,0,0.22)";
     ctx.fillRect(x, y, 3, h);
+    ctx.fillStyle = "rgba(255,236,200,0.08)"; // worn fore-edge highlight
+    ctx.fillRect(x + w - 2, y, 2, h);
+    if ((hsh >>> 5) % 4 !== 0) { // most bindings carry tooled gilt rules
+      ctx.fillStyle = "rgba(212,175,110,0.7)";
+      ctx.fillRect(x + 4, y + 9, w - 8, 2);
+      ctx.fillRect(x + 4, y + 14, w - 8, 1);
+      ctx.fillRect(x + 4, y + h - 13, w - 8, 1);
+      ctx.fillRect(x + 4, y + h - 9, w - 8, 2);
+    }
     ctx.save();
     ctx.translate(x + w * 0.62, y + 8);
     ctx.rotate(Math.PI / 2);
