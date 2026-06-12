@@ -1210,14 +1210,29 @@ const World = (() => {
   // One mesh of 640 merged quads, one 2048x2048 canvas atlas. Quad positions
   // are fixed; only the atlas text is redrawn when the room changes.
   let spineTex = null, spineCtx = null;
-  const SP_COLS = 64, SP_W = 32, SP_H = 204; // 64 x 10 cells = 640
+  let SP_SIZE = 2048, SP_COLS = 64, SP_W = 32, SP_H = 204; // 64 x 10 cells = 640
 
   function buildSpines() {
     const canvas = document.createElement("canvas");
-    canvas.width = 2048; canvas.height = 2048;
-    spineCtx = canvas.getContext("2d");
+    // try a high-resolution atlas; some GPUs and mobile canvases cap out lower
+    const cap = (renderer.capabilities.maxTextureSize || 2048) >= 4096;
+    canvas.width = canvas.height = cap ? 4096 : 2048;
+    let c2 = canvas.getContext("2d");
+    if (cap) { // big canvases silently fail on some mobile Safari builds — probe it
+      let ok = false;
+      try {
+        c2.fillStyle = "#fff"; c2.fillRect(4095, 4095, 1, 1);
+        ok = c2.getImageData(4095, 4095, 1, 1).data[3] > 0;
+      } catch (e) { ok = false; }
+      if (!ok) { canvas.width = canvas.height = 2048; c2 = canvas.getContext("2d"); }
+    }
+    SP_SIZE = canvas.width;
+    const sk = SP_SIZE / 2048;
+    SP_W = 32 * sk; SP_H = 204 * sk; SP_COLS = 64;
+    spineCtx = c2;
     spineTex = new THREE.CanvasTexture(canvas);
-    spineTex.minFilter = THREE.LinearFilter;
+    spineTex.generateMipmaps = true;
+    spineTex.minFilter = THREE.LinearMipmapLinearFilter;
     spineTex.magFilter = THREE.LinearFilter;
     spineTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
     const pos = new Float32Array(640 * 4 * 3);
@@ -1250,8 +1265,8 @@ const World = (() => {
             pos[(q * 4 + k) * 3 + 2] = corners[k][2];
           }
           const col = q % SP_COLS, row = (q / SP_COLS) | 0;
-          const u0 = (col * SP_W + 0.5) / 2048, u1 = ((col + 1) * SP_W - 0.5) / 2048;
-          const v1 = 1 - (row * SP_H + 0.5) / 2048, v0 = 1 - ((row + 1) * SP_H - 0.5) / 2048;
+          const u0 = (col * SP_W + 0.5) / SP_SIZE, u1 = ((col + 1) * SP_W - 0.5) / SP_SIZE;
+          const v1 = 1 - (row * SP_H + 0.5) / SP_SIZE, v0 = 1 - ((row + 1) * SP_H - 0.5) / SP_SIZE;
           uv[(q * 4) * 2] = u0; uv[(q * 4) * 2 + 1] = v0;
           uv[(q * 4 + 1) * 2] = u1; uv[(q * 4 + 1) * 2 + 1] = v0;
           uv[(q * 4 + 2) * 2] = u1; uv[(q * 4 + 2) * 2 + 1] = v1;
@@ -1276,7 +1291,7 @@ const World = (() => {
   function cellXY(q) { return [(q % SP_COLS) * SP_W, ((q / SP_COLS) | 0) * SP_H]; }
   function refreshSpines() {
     if (!spineCtx || !spineRenderer) return;
-    spineCtx.clearRect(0, 0, 2048, 2048);
+    spineCtx.clearRect(0, 0, SP_SIZE, SP_SIZE);
     for (let q = 0; q < 640; q++) {
       const [x, y] = cellXY(q);
       spineRenderer(spineCtx, q, x, y, SP_W, SP_H);
@@ -1696,19 +1711,21 @@ const World = (() => {
         if (job.epoch === coverEpoch) markDirty(job.q);
         pumpCovers();
       };
-      img.src = Catalog.coverURL(job.id, "S");
+      img.src = Catalog.coverURL(job.id, "M");
     }
   }
-  function trimCoverCache() { if (coverImgs.size > 1500) coverImgs.clear(); }
+  function trimCoverCache() { if (coverImgs.size > 900) coverImgs.clear(); }
+  let lastFlush = 0;
   function markDirty(q) {
     dirty.push(q);
-    if (!dirtyScheduled) {
-      dirtyScheduled = true;
-      requestAnimationFrame(() => {
-        const batch = dirty; dirty = []; dirtyScheduled = false;
-        World.updateSpineCells(batch);
-      });
-    }
+    if (dirtyScheduled) return;
+    dirtyScheduled = true;
+    const wait = Math.max(16, 120 - (performance.now() - lastFlush));
+    setTimeout(() => {
+      dirtyScheduled = false; lastFlush = performance.now();
+      const batch = dirty; dirty = [];
+      World.updateSpineCells(batch);
+    }, wait);
   }
 
   // ---------- spine renderer ----------
@@ -1717,12 +1734,13 @@ const World = (() => {
   const hexCol = (n) => "#" + n.toString(16).padStart(6, "0");
 
   World.setSpineRenderer((ctx, q, x, y, w, h) => {
+    const k = w / 32; // atlas cells scale with resolution
     const room = curRoom();
     const b = room ? room.books[q] : undefined;
     if (b === null) return; // empty slot — the book itself is hidden
     if (b === undefined) {  // still fetching
       ctx.fillStyle = "rgba(231,217,184,0.07)";
-      ctx.fillRect(x + 8, y + h * 0.42, w - 16, h * 0.16);
+      ctx.fillRect(x + 8 * k, y + h * 0.42, w - 16 * k, h * 0.16);
       return;
     }
     const img = b.cover ? coverImgs.get(b.cover) : null;
@@ -1746,31 +1764,31 @@ const World = (() => {
     ctx.fillStyle = hexCol(SPINE_HUES[hsh % SPINE_HUES.length]);
     ctx.fillRect(x, y, w, h);
     ctx.fillStyle = "rgba(0,0,0,0.22)";
-    ctx.fillRect(x, y, 3, h);
+    ctx.fillRect(x, y, 3 * k, h);
     ctx.fillStyle = "rgba(255,236,200,0.08)"; // worn fore-edge highlight
-    ctx.fillRect(x + w - 2, y, 2, h);
+    ctx.fillRect(x + w - 2 * k, y, 2 * k, h);
     if ((hsh >>> 5) % 4 !== 0) { // most bindings carry tooled gilt rules
       ctx.fillStyle = "rgba(212,175,110,0.7)";
-      ctx.fillRect(x + 4, y + 9, w - 8, 2);
-      ctx.fillRect(x + 4, y + 14, w - 8, 1);
-      ctx.fillRect(x + 4, y + h - 13, w - 8, 1);
-      ctx.fillRect(x + 4, y + h - 9, w - 8, 2);
+      ctx.fillRect(x + 4 * k, y + 9 * k, w - 8 * k, 2 * k);
+      ctx.fillRect(x + 4 * k, y + 14 * k, w - 8 * k, 1 * k);
+      ctx.fillRect(x + 4 * k, y + h - 13 * k, w - 8 * k, 1 * k);
+      ctx.fillRect(x + 4 * k, y + h - 9 * k, w - 8 * k, 2 * k);
     }
     ctx.save();
-    ctx.translate(x + w * 0.62, y + 8);
+    ctx.translate(x + w * 0.62, y + 8 * k);
     ctx.rotate(Math.PI / 2);
-    let size = 17;
+    let size = Math.round(17 * k);
     const title = b.title.length > 30 ? b.title.slice(0, 29) + "\u2026" : b.title;
     ctx.font = "600 " + size + "px Georgia, serif";
-    while (ctx.measureText(title).width > h - 20 && size > 9) {
+    while (ctx.measureText(title).width > h - 20 * k && size > 9 * k) {
       size--; ctx.font = "600 " + size + "px Georgia, serif";
     }
     ctx.textBaseline = "middle";
     const len = ctx.measureText(title).width;
     ctx.fillStyle = "rgba(231,217,184,0.85)";
-    ctx.fillRect(-4, -w * 0.40, len + 10, w * 0.78);
+    ctx.fillRect(-4 * k, -w * 0.40, len + 10 * k, w * 0.78);
     ctx.fillStyle = "#241405";
-    ctx.fillText(title, 1, 0);
+    ctx.fillText(title, k, 0);
     ctx.restore();
   });
 
