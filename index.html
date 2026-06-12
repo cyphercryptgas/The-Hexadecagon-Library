@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>The Open Stacks — Every Published Book, Walkable</title>
+<title>The Hexadecagon Library — Every Published Book, Walkable</title>
 <script>
   // Plateau 1: paste your Railway catalog URL here (e.g. "https://stacks-catalog-production.up.railway.app").
   // Leave empty to use the live Open Library API directly.
-  window.CATALOG_BASE = "stacks-catalog-production.up.railway.app";
+  window.CATALOG_BASE = "";
 </script>
 <style>
   :root{
@@ -57,16 +57,16 @@
   .panel{position:relative}
 
   /* ---------- landing ---------- */
-  #landing{flex-direction:column;text-align:center;background:
+  #landing{flex-direction:column;align-items:center;text-align:center;background:
     radial-gradient(ellipse at 50% 42%,rgba(5,3,2,.45) 0%,rgba(5,3,2,.88) 72%,#050302 100%)}
   #landing .eyebrow{color:var(--brass-dim);letter-spacing:.34em;font-size:10px;text-transform:uppercase;
     max-width:520px;line-height:2;padding:0 20px}
   #landing h1{font-weight:normal;color:var(--paper);text-transform:uppercase;
-    letter-spacing:.18em;font-size:clamp(26px,6vw,46px);margin:18px 0 10px;text-shadow:0 0 40px rgba(255,180,94,.18)}
+    letter-spacing:.18em;font-size:clamp(22px,4.6vw,42px);margin:18px 0 10px;text-shadow:0 0 40px rgba(255,180,94,.18)}
   #landing .sub{color:var(--brass);font-style:italic;font-size:15px;margin-bottom:8px}
   #landing .hexrule{width:200px;height:22px;margin:14px auto 26px;opacity:.7}
   #landing nav{display:flex;flex-direction:column;gap:0;width:300px;max-width:84vw}
-  #landing nav button{border:none;border-top:1px solid var(--line-soft);padding:14px 8px;
+  #landing nav button{border:none;border-top:1px solid var(--line-soft);padding:14px 8px;text-align:center;
     color:var(--brass);text-transform:uppercase;letter-spacing:.26em;font-size:12px;
     transition:color .15s,letter-spacing .25s,background .15s}
   #landing nav button:last-child{border-bottom:1px solid var(--line-soft)}
@@ -263,7 +263,7 @@
 <div id="landing" class="veil">
   <div>
     <div class="eyebrow">Tens of millions of works · sixty-four subjects in a ring · the famous shelved shallow, the rare shelved deep</div>
-    <h1>The Open Stacks</h1>
+    <h1>The Hexadecagon Library</h1>
     <div class="sub">Every published book, shelved and walkable.</div>
     <svg class="hexrule" viewBox="0 0 200 22" fill="none" stroke="#c8a35a" stroke-width="1">
       <line x1="0" y1="11" x2="78" y2="11" opacity=".5"/>
@@ -271,7 +271,7 @@
       <line x1="122" y1="11" x2="200" y2="11" opacity=".5"/>
     </svg>
     <nav>
-      <button id="btnEnter">Enter the Stacks</button>
+      <button id="btnEnter">Enter the Library</button>
       <button data-open="searchModal">Find a Book</button>
       <button data-open="addressModal">By ISBN or ID</button>
       <button data-open="about">About the Stacks</button>
@@ -430,8 +430,12 @@ const Catalog = (() => {
   // ---- self-hosted index (Plateau 1) ----
   // Set window.CATALOG_BASE to your Railway URL to serve rooms/search/work/random
   // from the monthly snapshot. Anything that fails falls back to live Open Library.
-  const REMOTE_BASE = (typeof window !== "undefined" && window.CATALOG_BASE
-    ? String(window.CATALOG_BASE) : "").replace(/\/+$/, "");
+  const REMOTE_BASE = (() => {
+    let b = (typeof window !== "undefined" && window.CATALOG_BASE
+      ? String(window.CATALOG_BASE) : "").trim().replace(/\/+$/, "");
+    if (b && !/^https?:\/\//i.test(b)) b = "https://" + b; // tolerate a pasted bare domain
+    return b;
+  })();
   let remoteState = REMOTE_BASE ? "unknown" : "off"; // unknown | up | down | off
   let remoteInfo = null;
 
@@ -456,6 +460,8 @@ const Catalog = (() => {
       return remoteInfo;
     } catch (e) {
       remoteState = "down";
+      console.warn("[catalog] self-hosted index unreachable (" + REMOTE_BASE + "): " +
+        (e && e.message || e) + " \u2014 falling back to live Open Library");
       return null;
     }
   }
@@ -1568,7 +1574,6 @@ const World = (() => {
       if (cells.length) World.updateSpineCells(cells);
       if (room.complete) {
         applyEmpties();
-        $("bootline").textContent = "the catalog is awake";
       }
       updateSlip();
     });
@@ -1576,7 +1581,6 @@ const World = (() => {
       if (mySi !== si || myDepth !== depth || myEpoch !== coverEpoch) return;
       if (room && !room.error) {
         paintRoom(room);
-        $("bootline").textContent = "the catalog is awake";
       }
     });
     // gentle neighbor prefetch once the current room settles
@@ -1602,12 +1606,11 @@ const World = (() => {
   // ---------- boot ----------
   World.init($("scene"));
   Catalog.probe().then((info) => {
-    if (info) $("bootline").textContent =
-      "snapshot " + info.built + " \u00b7 " + (info.works / 1e6).toFixed(1) + "M works \u00b7 self-hosted";
+    $("bootline").textContent = info
+      ? "snapshot " + info.built + " \u00b7 " + (info.works / 1e6).toFixed(1) + "M works \u00b7 self-hosted"
+      : "live catalog \u00b7 open library";
   });
-  Catalog.loadRoom(0, 0, () => {
-    if (!Catalog.remoteEnabled()) $("bootline").textContent = "the catalog is awake";
-  });
+  Catalog.loadRoom(0, 0);
 
   // ---------- modals ----------
   const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal"];
