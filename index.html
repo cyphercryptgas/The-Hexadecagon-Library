@@ -7,7 +7,7 @@
 <script>
   // Plateau 1: paste your Railway catalog URL here (e.g. "https://stacks-catalog-production.up.railway.app").
   // Leave empty to use the live Open Library API directly.
-  window.CATALOG_BASE = "";
+  window.CATALOG_BASE = "stacks-catalog-production.up.railway.app";
 </script>
 <style>
   :root{
@@ -60,12 +60,12 @@
   #landing{flex-direction:column;align-items:center;text-align:center;background:
     radial-gradient(ellipse at 50% 42%,rgba(5,3,2,.45) 0%,rgba(5,3,2,.88) 72%,#050302 100%)}
   #landing .eyebrow{color:var(--brass-dim);letter-spacing:.34em;font-size:10px;text-transform:uppercase;
-    max-width:520px;line-height:2;padding:0 20px}
+    max-width:520px;margin:0 auto;line-height:2;padding:0 20px}
   #landing h1{font-weight:normal;color:var(--paper);text-transform:uppercase;
     letter-spacing:.18em;font-size:clamp(22px,4.6vw,42px);margin:18px 0 10px;text-shadow:0 0 40px rgba(255,180,94,.18)}
   #landing .sub{color:var(--brass);font-style:italic;font-size:15px;margin-bottom:8px}
   #landing .hexrule{width:200px;height:22px;margin:14px auto 26px;opacity:.7}
-  #landing nav{display:flex;flex-direction:column;gap:0;width:300px;max-width:84vw}
+  #landing nav{display:flex;flex-direction:column;gap:0;width:300px;max-width:84vw;margin:0 auto}
   #landing nav button{border:none;border-top:1px solid var(--line-soft);padding:14px 8px;text-align:center;
     color:var(--brass);text-transform:uppercase;letter-spacing:.26em;font-size:12px;
     transition:color .15s,letter-spacing .25s,background .15s}
@@ -76,7 +76,7 @@
     color:var(--brass-dim);font-size:10px;letter-spacing:.2em;text-transform:uppercase}
   #modePill span{padding:8px 14px;cursor:pointer}
   #modePill span.on{color:var(--ink);background:var(--brass)}
-  #landing .epigraph{margin-top:34px;color:#6e5a3c;font-style:italic;font-size:12.5px;max-width:420px;
+  #landing .epigraph{margin:34px auto 0;color:#6e5a3c;font-style:italic;font-size:12.5px;max-width:420px;
     line-height:1.7;padding:0 18px}
   #bootline{margin-top:14px;color:#5d4c33;font-size:11px;letter-spacing:.2em;text-transform:uppercase;min-height:14px}
 
