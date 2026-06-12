@@ -363,7 +363,7 @@
     <h3>Spines and covers</h3>
     <p>Each spine carries its book's actual cover art, compressed the way a real spine compresses a jacket. Approach a shelf and the covers resolve; open a book for the full jacket, the publication facts, and the description.</p>
     <h3>Reading</h3>
-    <p>Millions of these books are scanned. Where a scan exists, <em>Read here</em> opens the Internet Archive's reader without leaving the stacks — public-domain works in full, modern works as previews subject to lending. Project Gutenberg and Open Library links are offered where they exist.</p>
+    <p>Millions of these books are scanned, in three tiers. <em>Full text</em>: public-domain works open complete, every page. <em>Preview</em>: in-copyright scans show a limited preview here; a free archive.org account lets you borrow the whole book — that gate is copyright law, not a missing key. <em>Metadata only</em>: no scan exists anywhere yet. Each book is labeled before you open it, and the English-language edition is preferred where one exists.</p>
     <h3>A living library</h3>
     <p>Unlike its impossible sibling, this library changes: the catalog grows daily, so a shelf revisited months later may hold slightly different neighbors. The durable bookmark here is the book itself — its ISBN or Open Library ID — not its shelf position.</p>
     <h3>Lineage</h3>
@@ -414,7 +414,7 @@ const Catalog = (() => {
   ]; // 64
 
   const ROOM_SIZE = 640; // 4 walls x 5 shelves x 32 books
-  const FIELDS = "key,title,author_name,first_publish_year,cover_i,has_fulltext,ia,id_project_gutenberg,edition_count,subject";
+  const FIELDS = "key,title,author_name,first_publish_year,cover_i,has_fulltext,ia,id_project_gutenberg,edition_count,subject,ebook_access,editions,editions.key,editions.title,editions.ia,editions.ebook_access,editions.cover_i,editions.language";
   const API = "https://openlibrary.org/search.json";
   const roomCache = new Map();   // "si:depth" -> { books: Array(640), got, complete, error }
   const inflight = new Map();
@@ -426,21 +426,33 @@ const Catalog = (() => {
 
   function normalizeDoc(d) {
     if (!d || !d.title) return null;
+    const ed = (d.editions && d.editions.docs && d.editions.docs[0]) || null; // best edition for lang=en
+    const access = (ed && ed.ebook_access) || d.ebook_access ||
+      (d.has_fulltext ? "borrowable" : "no_ebook");
     return {
       key: d.key,
       title: d.title,
       author: (d.author_name && d.author_name.length) ? d.author_name.slice(0, 3).join(", ") : "Unknown",
       year: d.first_publish_year || null,
-      cover: d.cover_i || null,
-      fulltext: !!d.has_fulltext,
-      ia: (d.ia && d.ia.length) ? d.ia[0] : null,
+      cover: (ed && ed.cover_i) || d.cover_i || null,
+      access, // "public" (full view) | "borrowable"/"printdisabled" (preview) | "no_ebook"
+      ia: (ed && ed.ia && ed.ia.length) ? ed.ia[0] : ((d.ia && d.ia.length) ? d.ia[0] : null),
       gutenberg: (d.id_project_gutenberg && d.id_project_gutenberg.length) ? d.id_project_gutenberg[0] : null,
       editions: d.edition_count || 1,
       subjects: (d.subject || []).slice(0, 6),
     };
   }
 
+  // Open Library asks ~1 request/second of unidentified clients; browsers cannot
+  // set User-Agent, so we self-throttle instead and lean on caching.
+  let lastGate = Promise.resolve();
+  function gate() {
+    const next = lastGate.then(() => new Promise((r) => setTimeout(r, 320)));
+    lastGate = next.catch(() => {});
+    return next;
+  }
   async function fetchJSON(url) {
+    await gate();
     const r = await fetch(url, { headers: { Accept: "application/json" } });
     if (!r.ok) throw new Error("Open Library replied " + r.status);
     return r.json();
@@ -465,7 +477,7 @@ const Catalog = (() => {
         while (room.got < ROOM_SIZE && guard++ < 12) {
           const want = Math.min(ROOM_SIZE - room.got, 320);
           const url = API + "?subject=" + encodeURIComponent(subject) +
-            "&sort=editions&fields=" + encodeURIComponent(FIELDS) +
+            "&sort=editions&lang=en&fields=" + encodeURIComponent(FIELDS) +
             "&limit=" + want + "&offset=" + offset;
           const data = await fetchJSON(url);
           const docs = (data.docs || []).map(normalizeDoc);
@@ -512,21 +524,21 @@ const Catalog = (() => {
 
   async function searchBooks(q, limit) {
     const url = API + "?q=" + encodeURIComponent(q) +
-      "&fields=" + encodeURIComponent(FIELDS) + "&limit=" + (limit || 20);
+      "&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=" + (limit || 20);
     const data = await fetchJSON(url);
     return (data.docs || []).map(normalizeDoc).filter(Boolean);
   }
 
   async function byIsbn(isbn) {
     const url = API + "?isbn=" + encodeURIComponent(isbn) +
-      "&fields=" + encodeURIComponent(FIELDS) + "&limit=1";
+      "&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=1";
     const data = await fetchJSON(url);
     return data.docs && data.docs.length ? normalizeDoc(data.docs[0]) : null;
   }
 
   async function byWorkId(olid) { // "OL45883W"
     const url = API + "?q=" + encodeURIComponent('key:"/works/' + olid + '"') +
-      "&fields=" + encodeURIComponent(FIELDS) + "&limit=1";
+      "&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=1";
     const data = await fetchJSON(url);
     return data.docs && data.docs.length ? normalizeDoc(data.docs[0]) : null;
   }
@@ -536,7 +548,7 @@ const Catalog = (() => {
     const si = Math.floor(Math.random() * 64);
     const offset = Math.floor(Math.random() * 2500);
     const url = API + "?subject=" + encodeURIComponent(subjectOf(si)) +
-      "&sort=editions&fields=" + encodeURIComponent(FIELDS) + "&limit=1&offset=" + offset;
+      "&sort=editions&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=1&offset=" + offset;
     const data = await fetchJSON(url);
     const doc = data.docs && data.docs.length ? normalizeDoc(data.docs[0]) : null;
     if (!doc) return null;
@@ -1327,6 +1339,9 @@ const World = (() => {
   let coverEpoch = 0;             // bumps on room change to cancel stale cover work
 
   const roomKey = () => Catalog.keyOf(((si % 64) + 64) % 64, depth);
+  const accessLabel = (b) =>
+    b.access === "public" ? "full text" :
+    (b.access === "borrowable" || b.access === "printdisabled") ? "preview" : null;
   const curRoom = () => Catalog.peekRoom(si, depth);
   const wallOf = (q) => Math.floor(q / 160) + 1;
   const shelfOf = (q) => Math.floor((q % 160) / 32) + 1;
@@ -1582,7 +1597,8 @@ const World = (() => {
     const b = room.books[q];
     if (!b) { card.style.display = "none"; return; }
     $("hcTitle").textContent = b.title;
-    $("hcMeta").textContent = b.author + (b.year ? " \u00b7 " + b.year : "") + (b.fulltext ? " \u00b7 scanned" : "");
+    const lbl = accessLabel(b);
+    $("hcMeta").textContent = b.author + (b.year ? " \u00b7 " + b.year : "") + (lbl ? " \u00b7 " + lbl : "");
     const im = $("hcImg");
     if (b.cover) { im.style.display = "block"; im.src = Catalog.coverURL(b.cover, "S"); }
     else im.style.display = "none";
@@ -1655,7 +1671,13 @@ const World = (() => {
     const myKey = b.key;
     Catalog.workDetails(b.key).then((d) => {
       if (!reader || reader.list[reader.idx].key !== myKey) return;
-      let text = (d.description || "").trim();
+      let text = (d.description || "").trim()
+        .replace(/\[([^\]]*)\]\[\d+\]/g, "$1")
+        .replace(/\[([^\]]*)\]\(([^)]*)\)/g, "$1")
+        .replace(/\(\[?source\]?[^)]*\)/gi, "")
+        .replace(/-{4,}[\s\S]*$/, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
       if (text.length > 700) text = text.slice(0, 700) + "\u2026";
       desc.textContent = text || "";
       if (!text) desc.innerHTML = '<span class="dim">No description in the catalog \u2014 the Open Library page may hold more.</span>';
@@ -1677,7 +1699,8 @@ const World = (() => {
     links.innerHTML = "";
     if (b.ia) {
       const r = document.createElement("button");
-      r.className = "pbtn"; r.textContent = "Read here";
+      r.className = "pbtn";
+      r.textContent = b.access === "public" ? "Read in full \u2014 here" : "Preview here";
       r.addEventListener("click", () => {
         $("iaTitle").textContent = b.title;
         $("iaFrame").src = "https://archive.org/embed/" + encodeURIComponent(b.ia);
@@ -1699,6 +1722,12 @@ const World = (() => {
     ol.target = "_blank"; ol.rel = "noopener";
     ol.style.textDecoration = "none";
     links.appendChild(ol);
+    const note = document.createElement("div");
+    note.style.cssText = "flex-basis:100%;font-size:11.5px;color:#7a6336;font-style:italic;margin-top:4px";
+    if (b.access === "public") note.textContent = "Public domain \u2014 every page is open.";
+    else if (b.ia) note.textContent = "In copyright \u2014 the Archive shows a preview; a free archive.org account borrows the full book.";
+    else note.textContent = "No scan exists for this one yet \u2014 metadata only.";
+    links.appendChild(note);
   }
 
   function bookStep(d) {
@@ -1738,9 +1767,10 @@ const World = (() => {
         const im = b.cover
           ? '<img src="' + Catalog.coverURL(b.cover, "S") + '" alt="">'
           : '<div class="noimg">\u2014</div>';
+        const lbl = accessLabel(b);
         row.innerHTML = im +
           '<div style="min-width:0"><div class="st"></div><div class="sm"></div></div>' +
-          (b.fulltext ? '<div class="badge">Readable</div>' : "");
+          (lbl ? '<div class="badge">' + (lbl === "full text" ? "Full text" : "Preview") + '</div>' : "");
         row.querySelector(".st").textContent = b.title;
         row.querySelector(".sm").textContent = b.author + (b.year ? " \u00b7 " + b.year : "");
         row.addEventListener("click", () => { openReader([b], 0, false); });
