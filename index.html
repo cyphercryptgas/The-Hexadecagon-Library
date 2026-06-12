@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>The Open Stacks — Every Published Book, Walkable</title>
+<script>
+  // Plateau 1: paste your Railway catalog URL here (e.g. "https://stacks-catalog-production.up.railway.app").
+  // Leave empty to use the live Open Library API directly.
+  window.CATALOG_BASE = "stacks-catalog-production.up.railway.app";
+</script>
 <style>
   :root{
     --void:#070503; --veil:rgba(5,3,2,.78);
@@ -365,7 +370,7 @@
     <h3>Reading</h3>
     <p>Millions of these books are scanned, in three tiers. <em>Full text</em>: public-domain works open complete, every page. <em>Preview</em>: in-copyright scans show a limited preview here; a free archive.org account lets you borrow the whole book — that gate is copyright law, not a missing key. <em>Metadata only</em>: no scan exists anywhere yet. Each book is labeled before you open it, and the English-language edition is preferred where one exists.</p>
     <h3>A living library</h3>
-    <p>Unlike its impossible sibling, this library changes: the catalog grows daily, so a shelf revisited months later may hold slightly different neighbors. The durable bookmark here is the book itself — its ISBN or Open Library ID — not its shelf position.</p>
+    <p>Unlike its impossible sibling, this library changes — but on its own terms. When the self-hosted index is connected, the shelves are pinned to a monthly snapshot of the catalog (named on the landing page), so every address holds until the next snapshot. The durable bookmark across snapshots is the book itself — its ISBN or Open Library ID.</p>
     <h3>Lineage</h3>
     <p>Catalog data, covers, and reading are provided by Open Library and the Internet Archive; this explorer is independent and unaffiliated. It shares its architecture with a companion piece: a true-scale Library of Babel containing every <em>possible</em> book. Between the two libraries lies the difference between everything that could be written and everything that has been.</p>
     <div class="btnrow"><button class="btn" data-close>Return</button></div>
@@ -421,6 +426,39 @@ const Catalog = (() => {
   const workCache = new Map();   // workKey -> works/{id}.json payload
 
   const keyOf = (si, depth) => si + ":" + depth;
+
+  // ---- self-hosted index (Plateau 1) ----
+  // Set window.CATALOG_BASE to your Railway URL to serve rooms/search/work/random
+  // from the monthly snapshot. Anything that fails falls back to live Open Library.
+  const REMOTE_BASE = (typeof window !== "undefined" && window.CATALOG_BASE
+    ? String(window.CATALOG_BASE) : "").replace(/\/+$/, "");
+  let remoteState = REMOTE_BASE ? "unknown" : "off"; // unknown | up | down | off
+  let remoteInfo = null;
+
+  async function remoteJSON(pathq, timeoutMs) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), timeoutMs || 8000);
+    try {
+      const r = await fetch(REMOTE_BASE + pathq, { signal: ctl.signal });
+      if (!r.ok) throw new Error("catalog index replied " + r.status);
+      return await r.json();
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  async function probe() {
+    if (remoteState === "off" || remoteState === "down") return null;
+    if (remoteState === "up") return remoteInfo;
+    try {
+      remoteInfo = await remoteJSON("/version", 5000);
+      remoteState = "up";
+      return remoteInfo;
+    } catch (e) {
+      remoteState = "down";
+      return null;
+    }
+  }
   const subjectOf = (si) => SUBJECTS[((si % 64) + 64) % 64];
   const pretty = (s) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -470,6 +508,19 @@ const Catalog = (() => {
     const room = roomCache.get(k) || { books: new Array(ROOM_SIZE).fill(undefined), got: 0, complete: false, error: null };
     roomCache.set(k, room);
     const p = (async () => {
+      if (REMOTE_BASE && (await probe())) {
+        try {
+          const data = await remoteJSON("/room?si=" + (((si % 64) + 64) % 64) + "&depth=" + depth, 9000);
+          for (let i = 0; i < ROOM_SIZE; i++) room.books[i] = data.books[i] || null;
+          room.got = data.got || 0;
+          room.complete = true;
+          if (onProgress) onProgress(room, 0, room.got);
+          inflight.delete(k);
+          return room;
+        } catch (e) {
+          remoteState = "down"; // fall back to live Open Library below
+        }
+      }
       const subject = subjectOf(si);
       let offset = depth * ROOM_SIZE + room.got;
       let guard = 0;
@@ -523,6 +574,12 @@ const Catalog = (() => {
   }
 
   async function searchBooks(q, limit) {
+    if (REMOTE_BASE && (await probe())) {
+      try {
+        const data = await remoteJSON("/search?q=" + encodeURIComponent(q) + "&limit=" + (limit || 20), 9000);
+        if (data.docs && data.docs.length) return data.docs;
+      } catch (e) { remoteState = "down"; }
+    }
     const url = API + "?q=" + encodeURIComponent(q) +
       "&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=" + (limit || 20);
     const data = await fetchJSON(url);
@@ -537,6 +594,11 @@ const Catalog = (() => {
   }
 
   async function byWorkId(olid) { // "OL45883W"
+    if (REMOTE_BASE && (await probe())) {
+      try {
+        return await remoteJSON("/work/" + encodeURIComponent(olid), 9000);
+      } catch (e) { /* 404 or network: fall through to live OL */ }
+    }
     const url = API + "?q=" + encodeURIComponent('key:"/works/' + olid + '"') +
       "&lang=en&fields=" + encodeURIComponent(FIELDS) + "&limit=1";
     const data = await fetchJSON(url);
@@ -545,6 +607,9 @@ const Catalog = (() => {
 
   // One cheap request that lands the visitor somewhere real.
   async function randomSpot() {
+    if (REMOTE_BASE && (await probe())) {
+      try { return await remoteJSON("/random", 9000); } catch (e) { remoteState = "down"; }
+    }
     const si = Math.floor(Math.random() * 64);
     const offset = Math.floor(Math.random() * 2500);
     const url = API + "?subject=" + encodeURIComponent(subjectOf(si)) +
@@ -561,6 +626,7 @@ const Catalog = (() => {
     SUBJECTS, ROOM_SIZE,
     subjectOf, pretty, keyOf,
     loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL,
+    probe, remoteEnabled: () => !!REMOTE_BASE,
   };
 })();
 </script>
@@ -1535,8 +1601,12 @@ const World = (() => {
 
   // ---------- boot ----------
   World.init($("scene"));
+  Catalog.probe().then((info) => {
+    if (info) $("bootline").textContent =
+      "snapshot " + info.built + " \u00b7 " + (info.works / 1e6).toFixed(1) + "M works \u00b7 self-hosted";
+  });
   Catalog.loadRoom(0, 0, () => {
-    $("bootline").textContent = "the catalog is awake";
+    if (!Catalog.remoteEnabled()) $("bootline").textContent = "the catalog is awake";
   });
 
   // ---------- modals ----------
@@ -1634,6 +1704,26 @@ const World = (() => {
   $("btnDown").addEventListener("click", () => ride(false));
 
   // ---------- reader ----------
+  const iaAccess = new Map(); // ia id -> "public" | "borrowable"
+  function refineAccess(b) {
+    if (!b.ia) return;
+    if (iaAccess.has(b.ia)) { b.access = iaAccess.get(b.ia); return; }
+    const myKey = b.key;
+    fetch("https://archive.org/metadata/" + encodeURIComponent(b.ia))
+      .then((r) => r.json())
+      .then((j) => {
+        const restricted = j && j.metadata &&
+          String(j.metadata["access-restricted-item"]) === "true";
+        const acc = restricted ? "borrowable" : "public";
+        iaAccess.set(b.ia, acc);
+        if (acc !== b.access) {
+          b.access = acc;
+          if (reader && reader.list[reader.idx] && reader.list[reader.idx].key === myKey) renderReader();
+        }
+      })
+      .catch(() => {});
+  }
+
   function openReader(list, idx, fromShelf) {
     reader = { list, idx, fromShelf };
     renderReader();
@@ -1643,6 +1733,7 @@ const World = (() => {
   function renderReader() {
     const b = reader.list[reader.idx];
     if (!b) return;
+    refineAccess(b);
     $("readerTitle").textContent = "\u201c" + b.title + "\u201d";
     $("readerByline").textContent = "by " + b.author;
     if (reader.fromShelf) {
