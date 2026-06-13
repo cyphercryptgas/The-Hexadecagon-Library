@@ -586,7 +586,18 @@ const Catalog = (() => {
   const inflight = new Map();
   const workCache = new Map();   // workKey -> works/{id}.json payload
 
-  const keyOf = (si, depth) => si + ":" + depth;
+  // ---- realms: the Stacks, and the Wings beyond the portal doors ----
+  let realm = "stacks";           // "stacks" | "research" | "law"
+  let wingInfo = null;            // from /wing/info: { research:{subjects,...}, law:{...} }
+  const setRealm = (r) => { realm = (r === "research" || r === "law") ? r : "stacks"; };
+  const realmName = () => realm;
+  const wingActive = (r) => !!(wingInfo && wingInfo[r] &&
+    wingInfo[r].subjects && wingInfo[r].subjects.length);
+  const subjectsNow = () => realm === "stacks"
+    ? SUBJECTS : ((wingInfo && wingInfo[realm] && wingInfo[realm].subjects) || []);
+  const subjectCount = () => subjectsNow().length || 64;
+
+  const keyOf = (si, depth) => realm + "|" + si + ":" + depth;
 
   // ---- self-hosted index (Plateau 1) ----
   // Set window.CATALOG_BASE to your Railway URL to serve rooms/search/work/random
@@ -622,6 +633,9 @@ const Catalog = (() => {
     if (remoteState === "up") return remoteInfo;
     try {
       remoteInfo = await remoteJSON("/version", 5000);
+      remoteJSON("/wing/info", 8000)
+        .then((j) => { wingInfo = (j && j.wings) || {}; })
+        .catch(() => {}); // wings are optional — the doors just stay boarded
       remoteState = "up";
       return remoteInfo;
     } catch (e) {
@@ -632,8 +646,25 @@ const Catalog = (() => {
       return null;
     }
   }
-  const subjectOf = (si) => SUBJECTS[((si % 64) + 64) % 64];
+  const subjectOf = (si) => {
+    const list = subjectsNow();
+    const n = list.length || 64;
+    return list[((si % n) + n) % n] || "the unnumbered";
+  };
   const pretty = (s) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+
+  function wingDoc(r, w) {
+    return {
+      key: "wing:" + w + ":" + (r.id || Math.random().toString(36).slice(2)),
+      title: r.title || "Untitled", author: r.author || "unknown",
+      year: r.year || null, cover: null,
+      editions: r.cited || 0, cited: r.cited || 0, subjects: [],
+      ia: null, gutenberg: null,
+      access: (w === "law" || r.pdf) ? "public" : null,
+      pdf: r.pdf || null, url: r.url || null, wing: w, extid: r.id || null,
+      _gutChecked: true, _audio: false, // the wings have their own readers
+    };
+  }
 
   function normalizeDoc(d) {
     if (!d || !d.title) return null;
@@ -681,6 +712,28 @@ const Catalog = (() => {
     const room = roomCache.get(k) || { books: new Array(ROOM_SIZE).fill(undefined), got: 0, complete: false, error: null };
     roomCache.set(k, room);
     const p = (async () => {
+      if (realm !== "stacks") {
+        if (!(REMOTE_BASE && (await probe()))) {
+          room.error = "the catalog node is offline";
+          if (onProgress) onProgress(room, 0, 0);
+          inflight.delete(k);
+          return room;
+        }
+        try {
+          const data = await remoteJSON("/wing/room?wing=" + realm +
+            "&si=" + si + "&depth=" + depth, 14000);
+          for (let i = 0; i < ROOM_SIZE; i++)
+            room.books[i] = data.books[i] ? wingDoc(data.books[i], realm) : null;
+          room.got = data.got || 0;
+          room.complete = true;
+          if (onProgress) onProgress(room, 0, room.got);
+        } catch (e) {
+          room.error = e.message || "network error";
+          if (onProgress) onProgress(room, 0, 0);
+        }
+        inflight.delete(k);
+        return room;
+      }
       if (REMOTE_BASE && (await probe())) {
         try {
           const data = await remoteJSON("/room?si=" + (((si % 64) + 64) % 64) + "&depth=" + depth, 9000);
@@ -845,6 +898,7 @@ const Catalog = (() => {
     loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText, findAudio, findGutenberg,
     probe, remoteEnabled: () => !!REMOTE_BASE,
     annexSearch, annexCase,
+    setRealm, realmName, subjectCount, wingActive,
   };
 })();
 </script>
@@ -1441,6 +1495,118 @@ const World = (() => {
     return grp;
   }
 
+  // ---- portals: doors to the wings, set into the free walls beside the seam door ----
+  // The free wall's doorway sits at z=-0.56; the solid stretch z in [-0.04, 1.7]
+  // takes a second arch. Walk into it and the world swaps realms under your feet.
+  const PORTAL = { W: 0.98, H: 1.98, CZ: 0.86 };
+  let portalGroup = null, portalDefs = [], portalInZone = false, portalCooldown = 0;
+
+  function portalLabelTex(text, active) {
+    const cv = document.createElement("canvas");
+    cv.width = 512; cv.height = 80;
+    const x = cv.getContext("2d");
+    x.clearRect(0, 0, 512, 80);
+    x.font = "600 34px Georgia, serif";
+    x.textAlign = "center"; x.textBaseline = "middle";
+    x.globalAlpha = active ? 1 : 0.45;
+    x.fillStyle = active ? "#d8a85c" : "#7a6336";
+    let t = text, size = 34;
+    while (x.measureText(t).width > 470 && size > 18) {
+      size--; x.font = "600 " + size + "px Georgia, serif";
+    }
+    x.fillText(t, 256, 30);
+    if (!active) {
+      x.font = "italic 21px Georgia, serif";
+      x.globalAlpha = 0.6;
+      x.fillText("under construction", 256, 62);
+    }
+    const t2 = new THREE.CanvasTexture(cv);
+    t2.encoding = THREE.sRGBEncoding;
+    return t2;
+  }
+
+  function setPortals(list) {
+    if (portalGroup) {
+      scene.remove(portalGroup);
+      portalGroup.traverse((o) => {
+        if (o.geometry) o.geometry.dispose();
+        if (o.material) {
+          if (o.material.map) o.material.map.dispose();
+          o.material.dispose();
+        }
+      });
+    }
+    portalGroup = new THREE.Group();
+    portalDefs = [];
+    (list || []).slice(0, 2).forEach((p, i) => {
+      const s = i === 0 ? 1 : -1; // first portal on the forward wall, second behind
+      const grp = new THREE.Group();
+      const jambGeo = new THREE.BoxGeometry(0.16, PORTAL.H + 0.06, 0.12);
+      for (const e of [-1, 1]) {
+        const j = new THREE.Mesh(jambGeo, MAT.woodDark);
+        j.position.set(s * (APO - 0.04), (PORTAL.H + 0.06) / 2,
+          PORTAL.CZ + e * (PORTAL.W / 2 + 0.06));
+        grp.add(j);
+      }
+      const lintel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.16, 0.11, PORTAL.W + 0.36), MAT.woodDark);
+      lintel.position.set(s * (APO - 0.04), PORTAL.H + 0.055, PORTAL.CZ);
+      grp.add(lintel);
+      // the dark of elsewhere
+      const leaf = new THREE.Mesh(
+        new THREE.PlaneGeometry(PORTAL.W - 0.02, PORTAL.H - 0.02),
+        new THREE.MeshBasicMaterial({ color: p.active ? 0x060309 : 0x0c0905, fog: false }));
+      leaf.position.set(s * (APO - 0.085), PORTAL.H / 2 - 0.01, PORTAL.CZ);
+      leaf.rotation.y = -s * Math.PI / 2;
+      grp.add(leaf);
+      if (p.active) { // a breath of light under the lintel
+        const glow = new THREE.Mesh(
+          new THREE.PlaneGeometry(PORTAL.W - 0.12, 0.05),
+          new THREE.MeshBasicMaterial({ color: 0xd8a85c, transparent: true, opacity: 0.85,
+            blending: THREE.AdditiveBlending, fog: false, depthWrite: false }));
+        glow.position.set(s * (APO - 0.10), PORTAL.H - 0.10, PORTAL.CZ);
+        glow.rotation.y = -s * Math.PI / 2;
+        glow.renderOrder = 3;
+        grp.add(glow);
+      } else { // boarded shut until its index is built
+        const plankGeo = new THREE.BoxGeometry(0.05, 0.13, PORTAL.W + 0.10);
+        [0.55, 1.05, 1.55].forEach((y, pi) => {
+          const pl = new THREE.Mesh(plankGeo, MAT.woodDark);
+          pl.position.set(s * (APO - 0.10), y, PORTAL.CZ);
+          pl.rotation.x = (pi % 2 ? -1 : 1) * 0.10;
+          grp.add(pl);
+        });
+      }
+      const plaque = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.30, 0.20),
+        new THREE.MeshBasicMaterial({ map: portalLabelTex(p.label, p.active),
+          transparent: true, fog: false }));
+      plaque.position.set(s * (APO - 0.085), PORTAL.H + 0.24, PORTAL.CZ);
+      plaque.rotation.y = -s * Math.PI / 2;
+      grp.add(plaque);
+      portalGroup.add(grp);
+      portalDefs.push({ name: p.name, active: !!p.active, side: s });
+    });
+    scene.add(portalGroup);
+  }
+
+  function checkPortals(now) {
+    if (!portalDefs.length || stair.on) { portalInZone = false; return; }
+    let hit = null;
+    for (const d of portalDefs) {
+      const wx = d.side * APO;
+      const inside = Math.abs(player.z - PORTAL.CZ) < 0.50 &&
+        (d.side > 0 ? (player.x > wx - 0.62 && player.x < wx - 0.05)
+                    : (player.x < wx + 0.62 && player.x > wx + 0.05));
+      if (inside) { hit = d; break; }
+    }
+    if (hit && !portalInZone && now > portalCooldown) {
+      portalCooldown = now + 1500;
+      if (cb.portal) cb.portal(hit.name, hit.active);
+    }
+    portalInZone = !!hit;
+  }
+
   function buildStair(cx) {
     const g = new THREE.Group();
     const nSteps = STEPS_PER_TURN * 7;
@@ -2002,6 +2168,7 @@ const World = (() => {
       if (player.x > PITCH / 2) { player.x -= PITCH; if (cb.roomShift) cb.roomShift(1); }
       else if (player.x < -PITCH / 2) { player.x += PITCH; if (cb.roomShift) cb.roomShift(-1); }
     }
+    checkPortals(performance.now());
     camera.position.set(player.x, EYE + stair.h, player.z);
     const near = !stair.on && Math.abs(player.x) > APO - 0.4 &&
       Math.hypot(Math.abs(player.x) - SCX, player.z - STAIR_Z) < 1.4;
@@ -2117,6 +2284,7 @@ const World = (() => {
     },
     isTouch: () => matchMedia("(pointer: coarse)").matches,
     on(name, fn) { cb[name] = fn; },
+    setPortals,
     tune(o) {
       if (o.sens) lookSens = o.sens;
       if (o.speed) speedMul = o.speed;
@@ -2380,8 +2548,9 @@ const World = (() => {
       for (let q = 0; q < 640; q++) if (room.books[q] && !hiddenByFilter(room.books[q])) n++;
       label = n + " readable of 640";
     }
+    const prefix = realm === "stacks" ? "" : REALM_LABEL[realm] + " \u00b7 ";
     $("slipAddr").textContent =
-      Catalog.pretty(Catalog.subjectOf(si)) + " \u00b7 depth " + depth + " \u00b7 " +
+      prefix + Catalog.pretty(Catalog.subjectOf(si)) + " \u00b7 depth " + depth + " \u00b7 " +
       (room && room.error ? "offline" : label);
     $("slip").title = "The famous shelve shallow; descend for the rare";
   }
@@ -2425,7 +2594,8 @@ const World = (() => {
         if (room.got === 0 && myDepth > 0 && !room._endToasted) {
           room._endToasted = true;
           toast("Past the last " + Catalog.pretty(Catalog.subjectOf(mySi)).toLowerCase() +
-            " book \u2014 these shelves await what hasn't been written");
+            (realm === "stacks" ? " book" : " work") +
+            " \u2014 these shelves await what hasn't been written");
         }
       }
       updateSlip();
@@ -2458,10 +2628,12 @@ const World = (() => {
 
   // ---------- boot ----------
   World.init($("scene"));
+  syncPortals();
   Catalog.probe().then((info) => {
     $("bootline").textContent = info
       ? "snapshot " + info.built + " \u00b7 " + (info.works / 1e6).toFixed(1) + "M works \u00b7 self-hosted"
       : "live catalog \u00b7 open library";
+    setTimeout(syncPortals, 1200); // /wing/info lands just after /version
   });
   Catalog.loadRoom(0, 0);
 
@@ -2618,7 +2790,11 @@ const World = (() => {
   $("btnEnter").addEventListener("click", enterLibrary);
 
   // ---------- world callbacks ----------
-  World.on("roomShift", (d) => { si = ((si + d) % 64 + 64) % 64; afterRoomChange(); });
+  World.on("roomShift", (d) => {
+    const N = Catalog.subjectCount();
+    si = ((si + d) % N + N) % N;
+    afterRoomChange();
+  });
   World.on("canHover", (meta) => {
     if (meta.slot !== 0) return false;
     const room = curRoom();
@@ -2678,6 +2854,40 @@ const World = (() => {
         : "Depth " + depth + " \u2014 toward the famous"));
   });
 
+  // ---------- portals: the wings ----------
+  const REALM_LABEL = { stacks: "The Stacks", research: "The Research Wing", law: "The Law Library" };
+  let realm = "stacks";
+  const realmPos = {
+    stacks: { si: 0, depth: 0 },
+    research: { si: 0, depth: 0 },
+    law: { si: 0, depth: 0 },
+  };
+  function syncPortals() {
+    World.setPortals(realm === "stacks"
+      ? [{ name: "research", label: "THE RESEARCH WING", active: Catalog.wingActive("research") },
+         { name: "law", label: "THE LAW LIBRARY", active: Catalog.wingActive("law") }]
+      : [{ name: "stacks", label: "THE STACKS", active: true },
+         realm === "research"
+           ? { name: "law", label: "THE LAW LIBRARY", active: Catalog.wingActive("law") }
+           : { name: "research", label: "THE RESEARCH WING", active: Catalog.wingActive("research") }]);
+  }
+  World.on("portal", (name, active) => {
+    if (name === realm) return;
+    if (name !== "stacks" && !Catalog.wingActive(name)) {
+      toast(REALM_LABEL[name] + " is still under construction \u2014 build its index and the doors open");
+      return;
+    }
+    realmPos[realm] = { si, depth };
+    realm = name;
+    Catalog.setRealm(name);
+    si = realmPos[name].si;
+    depth = realmPos[name].depth;
+    syncPortals();
+    afterRoomChange();
+    World.placeAtCenter(60);
+    toast("You step into " + REALM_LABEL[name]);
+  });
+
   // ---------- reader ----------
   const iaAccess = new Map(); // ia id -> "public" | "borrowable"
   function refineAccess(b) {
@@ -2722,20 +2932,35 @@ const World = (() => {
       $("readerShelfNote").textContent = "";
       $("pageNum").textContent = "\u2014";
     }
-    $("readerFacts").textContent =
-      (b.year ? "First published " + b.year + " \u00b7 " : "") +
-      b.editions + " edition" + (b.editions === 1 ? "" : "s") +
-      " \u00b7 " + b.key.replace("/works/", "");
+    if (b.wing) {
+      $("readerFacts").textContent =
+        (b.year ? (b.wing === "law" ? "Decided " : "Published ") + b.year + " \u00b7 " : "") +
+        (b.cited || 0).toLocaleString() + " citation" + (b.cited === 1 ? "" : "s") +
+        (b.extid ? " \u00b7 " + (b.wing === "law" ? "CourtListener #" + b.extid
+          : String(b.extid).replace("https://openalex.org/", "OpenAlex ")) : "");
+    } else {
+      $("readerFacts").textContent =
+        (b.year ? "First published " + b.year + " \u00b7 " : "") +
+        b.editions + " edition" + (b.editions === 1 ? "" : "s") +
+        " \u00b7 " + b.key.replace("/works/", "");
+    }
     const cov = $("readerCover");
     cov.onerror = () => cov.classList.add("none");
     if (b.cover) { cov.classList.remove("none"); cov.src = Catalog.coverURL(b.cover, "M"); }
     else cov.classList.add("none");
     // description + excerpt, fetched lazily
     const desc = $("readerDesc"), exc = $("readerExcerpt");
-    desc.innerHTML = '<span class="dim">consulting the catalog\u2026</span>';
     exc.style.display = "none";
+    if (b.wing) {
+      desc.textContent = b.wing === "research"
+        ? "Among the most cited works in " + Catalog.pretty(Catalog.subjectOf(si)).toLowerCase() +
+          " \u2014 the literature, ranked by how often it\u2019s built upon."
+        : "An opinion of the " + (b.author || "court") +
+          ", shelved by how often later courts have cited it.";
+    }
+    desc.innerHTML = b.wing ? desc.innerHTML : '<span class="dim">consulting the catalog\u2026</span>';
     const myKey = b.key;
-    Catalog.workDetails(b.key).then((d) => {
+    if (!b.wing) Catalog.workDetails(b.key).then((d) => {
       if (!reader || reader.list[reader.idx].key !== myKey) return;
       let text = (d.description || "").trim()
         .replace(/\[([^\]]*)\]\[\d+\]/g, "$1")
@@ -2763,6 +2988,51 @@ const World = (() => {
     // links
     const links = $("readerLinks");
     links.innerHTML = "";
+    if (b.wing) {
+      if (b.wing === "research") {
+        if (b.pdf) {
+          const t = document.createElement("button");
+          t.className = "pbtn";
+          t.textContent = "Read the paper \u2014 here";
+          t.addEventListener("click", () => openPaper({ title: b.title, pdf: b.pdf }));
+          links.appendChild(t);
+        }
+        if (b.url) {
+          const a = document.createElement("a");
+          a.className = "pbtn";
+          a.textContent = b.url.indexOf("doi.org") !== -1 ? "DOI \u2197" : "OpenAlex \u2197";
+          a.href = b.url; a.target = "_blank"; a.rel = "noopener";
+          a.style.textDecoration = "none";
+          links.appendChild(a);
+        }
+      } else {
+        if (b.extid) {
+          const t = document.createElement("button");
+          t.className = "pbtn";
+          t.textContent = "Read the opinion \u2014 here";
+          t.addEventListener("click", () => openCase({
+            id: b.extid, title: b.title, court: b.author, year: b.year, cite: "", url: b.url,
+          }, "reader"));
+          links.appendChild(t);
+        }
+        if (b.url) {
+          const a = document.createElement("a");
+          a.className = "pbtn";
+          a.textContent = "CourtListener \u2197";
+          a.href = b.url; a.target = "_blank"; a.rel = "noopener";
+          a.style.textDecoration = "none";
+          links.appendChild(a);
+        }
+      }
+      const wn = document.createElement("div");
+      wn.style.cssText = "flex-basis:100%;font-size:11.5px;color:#7a6336;font-style:italic;margin-top:4px";
+      wn.textContent = b.wing === "law"
+        ? "Public record \u2014 the full opinion opens right here, typeset."
+        : (b.pdf ? "Open access \u2014 the paper opens right here."
+                 : "No open copy in the index \u2014 the link leads to the publisher.");
+      links.appendChild(wn);
+      return;
+    }
     const hasText = !!(b.gutenberg && Catalog.remoteEnabled());
     if (hasText) {
       const t = document.createElement("button");
@@ -3243,10 +3513,11 @@ const World = (() => {
     }
   }
   const caseTextCache = new Map(); // opinion id -> text
-  async function openCase(d) {
+  async function openCase(d, returnTo) {
     if (!d.id) { if (d.url) window.open(d.url, "_blank", "noopener"); return; }
-    TR_RETURN = "searchModal";
-    $("btnCloseText").textContent = "Return to the search";
+    const ret = returnTo || "searchModal";
+    TR_RETURN = ret;
+    $("btnCloseText").textContent = ret === "reader" ? "Return to the book" : "Return to the search";
     TR_BOOK = null; TR = null;
     $("trListen").classList.add("hidden");
     $("trTitle").textContent = "\u201C" + d.title + "\u201D";
@@ -3269,7 +3540,7 @@ const World = (() => {
       if ($("textReader").classList.contains("hidden")) return; // closed while loading
       if (!text) throw new Error("the record holds no machine-readable text");
       startPlainReader(d.title, byline, "CourtListener \u00b7 public record",
-        text, "case:" + d.id, "searchModal");
+        text, "case:" + d.id, ret);
     } catch (e) {
       if ($("textReader").classList.contains("hidden")) return;
       flow.innerHTML = "";
