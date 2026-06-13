@@ -1556,7 +1556,7 @@ const World = (() => {
       const leaf = new THREE.Mesh(
         new THREE.PlaneGeometry(PORTAL.W - 0.02, PORTAL.H - 0.02),
         new THREE.MeshBasicMaterial({ color: p.active ? 0x060309 : 0x0c0905, fog: false }));
-      leaf.position.set(s * (APO - 0.085), PORTAL.H / 2 - 0.01, PORTAL.CZ);
+      leaf.position.set(s * (APO - 0.02), PORTAL.H / 2 - 0.01, PORTAL.CZ);
       leaf.rotation.y = -s * Math.PI / 2;
       grp.add(leaf);
       if (p.active) { // a breath of light under the lintel
@@ -1564,7 +1564,7 @@ const World = (() => {
           new THREE.PlaneGeometry(PORTAL.W - 0.12, 0.05),
           new THREE.MeshBasicMaterial({ color: 0xd8a85c, transparent: true, opacity: 0.85,
             blending: THREE.AdditiveBlending, fog: false, depthWrite: false }));
-        glow.position.set(s * (APO - 0.10), PORTAL.H - 0.10, PORTAL.CZ);
+        glow.position.set(s * (APO - 0.14), PORTAL.H - 0.12, PORTAL.CZ);
         glow.rotation.y = -s * Math.PI / 2;
         glow.renderOrder = 3;
         grp.add(glow);
@@ -1572,17 +1572,18 @@ const World = (() => {
         const plankGeo = new THREE.BoxGeometry(0.05, 0.13, PORTAL.W + 0.10);
         [0.55, 1.05, 1.55].forEach((y, pi) => {
           const pl = new THREE.Mesh(plankGeo, MAT.woodDark);
-          pl.position.set(s * (APO - 0.10), y, PORTAL.CZ);
+          pl.position.set(s * (APO - 0.16), y, PORTAL.CZ);
           pl.rotation.x = (pi % 2 ? -1 : 1) * 0.10;
           grp.add(pl);
         });
       }
       const plaque = new THREE.Mesh(
-        new THREE.PlaneGeometry(1.30, 0.20),
+        new THREE.PlaneGeometry(1.12, 0.17),
         new THREE.MeshBasicMaterial({ map: portalLabelTex(p.label, p.active),
-          transparent: true, fog: false }));
-      plaque.position.set(s * (APO - 0.085), PORTAL.H + 0.24, PORTAL.CZ);
+          transparent: true, fog: false, depthTest: false }));
+      plaque.position.set(s * (APO - 0.20), PORTAL.H + 0.13, PORTAL.CZ);
       plaque.rotation.y = -s * Math.PI / 2;
+      plaque.renderOrder = 4; // always reads in front of the masonry
       grp.add(plaque);
       portalGroup.add(grp);
       portalDefs.push({ name: p.name, active: !!p.active, side: s });
@@ -3506,12 +3507,15 @@ const World = (() => {
 
   // ---- annex: papers open as PDFs in the frame; opinions open in the typeset reader ----
   function openPaper(d) {
-    if (d.pdf) {
-      $("iaTitle").textContent = d.title;
-      $("iaFrame").src = d.pdf;
-      openModal("iaModal");
-    } else if (d.page) {
-      window.open(d.page, "_blank", "noopener");
+    // External PDFs (arXiv etc.) frequently send X-Frame-Options: DENY or
+    // Content-Disposition: attachment, which makes an iframe go blank or
+    // force a download. A new tab always works and is how papers are read.
+    const url = d.pdf || d.page;
+    if (url) {
+      window.open(url, "_blank", "noopener");
+      toast("Opening the paper in a new tab\u2026");
+    } else {
+      toast("No open copy of this paper in the index");
     }
   }
   const caseTextCache = new Map(); // opinion id -> text
