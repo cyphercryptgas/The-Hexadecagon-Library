@@ -123,6 +123,11 @@
   .tr-edge:hover,.tr-edge:focus-visible{color:#4a3517;outline:none}
   .tr-edge.left:hover{background:linear-gradient(to right,rgba(60,40,16,.08),transparent)}
   .tr-edge.right:hover{background:linear-gradient(to left,rgba(60,40,16,.08),transparent)}
+  #annexTabs{display:flex;gap:8px;margin:2px 0 14px}
+  .atab{border:1px solid var(--line);background:transparent;color:var(--brass-dim);padding:7px 14px;
+    font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer}
+  .atab:hover{color:var(--amber)}
+  .atab.on{color:var(--amber);border-color:var(--brass)}
   #trListen{border:1px solid var(--line);background:transparent;color:var(--brass);padding:7px 12px;
     font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer}
   #trListen:hover{color:var(--amber);border-color:var(--brass)}
@@ -425,13 +430,18 @@
 <div id="searchModal" class="veil hidden">
   <div class="panel">
     <button class="closex" data-close>×</button>
-    <h2>Find a Book</h2>
+    <h2 id="searchH2">Find a Book</h2>
     <div class="rule"></div>
-    <p>Search the whole catalog — title, author, or both. Anything ever published is fair game.</p>
-    <label class="smallcaps" for="searchInput">Title or author</label>
+    <div id="annexTabs">
+      <button class="atab on" data-atab="books">Books</button>
+      <button class="atab" data-atab="papers">Papers</button>
+      <button class="atab" data-atab="law">Law</button>
+    </div>
+    <p id="searchIntro">Search the whole catalog — title, author, or both. Anything ever published is fair game.</p>
+    <label class="smallcaps" for="searchInput" id="searchLabel">Title or author</label>
     <input id="searchInput" class="field" placeholder="the left hand of darkness" spellcheck="false" autocomplete="off">
     <div class="err" id="searchErr"></div>
-    <div class="tips">Try: <span class="tip" data-q="moby dick">moby dick</span> · <span class="tip" data-q="ursula k le guin">ursula k le guin</span> · <span class="tip" data-q="a brief history of time">a brief history of time</span></div>
+    <div class="tips" id="searchTips">Try: </div>
     <div class="btnrow">
       <button class="btn primary" id="btnDoSearch">Search the catalog</button>
       <button class="btn quiet" data-close>Close</button>
@@ -518,7 +528,7 @@
     <footer id="tr-foot">
       <span id="trPage">&nbsp;</span>
       <button id="trListen" class="hidden">&#9654;&nbsp; Listen along</button>
-      <span>Project Gutenberg &middot; public domain</span>
+      <span id="trSource" class="smallcaps">Project Gutenberg · public domain</span>
     </footer>
   </div>
 </div>
@@ -815,6 +825,18 @@ const Catalog = (() => {
     } catch (e) { return null; }
   }
 
+  // The Annex: research papers (arXiv) and case law (CourtListener),
+  // proxied and cached by the catalog node.
+  async function annexSearch(kind, q) {
+    if (!REMOTE_BASE || !(await probe())) throw new Error("the catalog node is offline");
+    const j = await remoteJSON("/annex/" + kind + "?q=" + encodeURIComponent(q), 25000);
+    return (j && j.docs) || [];
+  }
+  async function annexCase(id) {
+    if (!REMOTE_BASE || !(await probe())) throw new Error("the catalog node is offline");
+    return remoteJSON("/annex/case?id=" + encodeURIComponent(id), 30000);
+  }
+
   const coverURL = (id, size) => "https://covers.openlibrary.org/b/id/" + id + "-" + (size || "M") + ".jpg";
 
   return {
@@ -822,6 +844,7 @@ const Catalog = (() => {
     subjectOf, pretty, keyOf,
     loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText, findAudio, findGutenberg,
     probe, remoteEnabled: () => !!REMOTE_BASE,
+    annexSearch, annexCase,
   };
 })();
 </script>
@@ -2824,6 +2847,7 @@ const World = (() => {
   const trTextCache = new Map(); // gutenberg id -> { kind, body }
   const TR_GAP = 64;
   let TR = null; // { nodes, mounted, page, pages, gid }
+  let TR_RETURN = "reader"; // which modal the close button returns to
 
   function toParagraphs(t) {
     t = t.replace(/\[Illustration:?[^\]]*\]/g, " "); // plaintext has no pictures, only markers
@@ -2948,6 +2972,9 @@ const World = (() => {
   let TR_BOOK = null;
   function openTextReader(b) {
     TR_BOOK = b;
+    TR_RETURN = "reader";
+    $("btnCloseText").textContent = "Return to the book";
+    $("trSource").textContent = "Project Gutenberg \u00b7 public domain";
     $("trListen").classList.add("hidden");
     const maybeShowListen = () => {
       if (TR_BOOK === b && b._audio && b._audio.sections && b._audio.sections.length)
@@ -3004,9 +3031,34 @@ const World = (() => {
     });
   }
 
+  function startPlainReader(title, byline, source, text, key, returnTo) {
+    TR_RETURN = returnTo || "reader";
+    $("btnCloseText").textContent = TR_RETURN === "reader" ? "Return to the book" : "Return to the search";
+    TR_BOOK = null;
+    $("trListen").classList.add("hidden");
+    $("trTitle").textContent = "\u201C" + title + "\u201D";
+    $("trAuthor").textContent = byline;
+    $("trSource").textContent = source;
+    const flow = $("tr-flow");
+    flow.innerHTML = "";
+    flow.style.transform = "translateX(0)";
+    flow.style.columnWidth = "";
+    if ($("textReader").classList.contains("hidden")) openModal("textReader");
+    TR = { nodes: textToNodes(text), mounted: 0, page: 0, pages: 1, gid: key };
+    trMount(220);
+    let pct = 0;
+    try { pct = JSON.parse(localStorage.getItem("hexlib:read") || "{}")[key] || 0; } catch (e) {}
+    if (pct > 0.002) { // resume long documents where you left them
+      let guard = 0;
+      while (TR.mounted < TR.nodes.length && guard++ < 80) trMount(250);
+      TR.page = Math.min(TR.pages - 1, Math.round(pct * TR.pages));
+    }
+    trApply();
+  }
+
   $("trPrev").addEventListener("click", () => trGo(-1));
   $("trNext").addEventListener("click", () => trGo(1));
-  $("btnCloseText").addEventListener("click", () => openModal("reader"));
+  $("btnCloseText").addEventListener("click", () => openModal(TR_RETURN));
   $("trListen").addEventListener("click", () => {
     const b = TR_BOOK;
     if (!b || !b._audio || !b._audio.sections || !b._audio.sections.length) {
@@ -3124,12 +3176,150 @@ const World = (() => {
     toast(Catalog.pretty(Catalog.subjectOf(si)) + " stacks \u00b7 depth " + depth);
   });
 
-  // ---------- search ----------
-  document.querySelectorAll(".tip").forEach((t) =>
-    t.addEventListener("click", () => { $("searchInput").value = t.dataset.q; $("searchInput").focus(); }));
+  // ---------- search: Books · Papers · Law (the Annex) ----------
+  let searchTab = "books";
+  const TAB_COPY = {
+    books: {
+      h2: "Find a Book",
+      intro: "Search the whole catalog \u2014 title, author, or both. Anything ever published is fair game.",
+      label: "Title or author", btn: "Search the catalog",
+      ph: "the left hand of darkness",
+      tips: ["moby dick", "ursula k le guin", "a brief history of time"],
+    },
+    papers: {
+      h2: "Find a Paper",
+      intro: "Search arXiv \u2014 two and a half million research papers, every one readable in full.",
+      label: "Title, author, or topic", btn: "Search arXiv",
+      ph: "attention is all you need",
+      tips: ["attention is all you need", "crispr gene editing", "gravitational waves"],
+    },
+    law: {
+      h2: "Find a Case",
+      intro: "Search U.S. case law \u2014 court opinions are public domain by their very nature.",
+      label: "Case name or topic", btn: "Search the law",
+      ph: "marbury v. madison",
+      tips: ["marbury v madison", "fair use", "miranda v arizona"],
+    },
+  };
+  function setTabUI() {
+    const c = TAB_COPY[searchTab];
+    $("searchH2").textContent = c.h2;
+    $("searchIntro").textContent = c.intro;
+    $("searchLabel").textContent = c.label;
+    $("btnDoSearch").textContent = c.btn;
+    $("searchInput").placeholder = c.ph;
+    const tips = $("searchTips");
+    tips.textContent = "Try: ";
+    c.tips.forEach((q, i) => {
+      if (i) tips.appendChild(document.createTextNode(" \u00b7 "));
+      const s = document.createElement("span");
+      s.className = "tip";
+      s.textContent = q;
+      s.addEventListener("click", () => { $("searchInput").value = q; $("searchInput").focus(); });
+      tips.appendChild(s);
+    });
+    document.querySelectorAll(".atab").forEach((b) =>
+      b.classList.toggle("on", b.dataset.atab === searchTab));
+  }
+  document.querySelectorAll(".atab").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (searchTab === b.dataset.atab) return;
+      searchTab = b.dataset.atab;
+      $("searchList").innerHTML = "";
+      $("searchErr").textContent = "";
+      setTabUI();
+      $("searchInput").focus();
+    }));
+  setTabUI();
+
+  // ---- annex: papers open as PDFs in the frame; opinions open in the typeset reader ----
+  function openPaper(d) {
+    if (d.pdf) {
+      $("iaTitle").textContent = d.title;
+      $("iaFrame").src = d.pdf;
+      openModal("iaModal");
+    } else if (d.page) {
+      window.open(d.page, "_blank", "noopener");
+    }
+  }
+  const caseTextCache = new Map(); // opinion id -> text
+  async function openCase(d) {
+    if (!d.id) { if (d.url) window.open(d.url, "_blank", "noopener"); return; }
+    TR_RETURN = "searchModal";
+    $("btnCloseText").textContent = "Return to the search";
+    TR_BOOK = null; TR = null;
+    $("trListen").classList.add("hidden");
+    $("trTitle").textContent = "\u201C" + d.title + "\u201D";
+    const byline = [d.court, d.year, d.cite].filter(Boolean).join(" \u00b7 ");
+    $("trAuthor").textContent = byline;
+    $("trSource").textContent = "CourtListener \u00b7 public record";
+    const flow = $("tr-flow");
+    flow.innerHTML = '<p class="loading">fetching the opinion\u2026</p>';
+    flow.style.transform = "translateX(0)";
+    flow.style.columnWidth = "";
+    $("trPage").textContent = "\u00a0";
+    openModal("textReader");
+    try {
+      let text = caseTextCache.get(d.id);
+      if (!text) {
+        const r = await Catalog.annexCase(d.id);
+        text = (r && r.text) || "";
+        if (text) caseTextCache.set(d.id, text);
+      }
+      if ($("textReader").classList.contains("hidden")) return; // closed while loading
+      if (!text) throw new Error("the record holds no machine-readable text");
+      startPlainReader(d.title, byline, "CourtListener \u00b7 public record",
+        text, "case:" + d.id, "searchModal");
+    } catch (e) {
+      if ($("textReader").classList.contains("hidden")) return;
+      flow.innerHTML = "";
+      const er = document.createElement("p");
+      er.className = "loading";
+      er.textContent = "The opinion could not be fetched \u2014 " + (e.message || "network error") +
+        (d.url ? ". CourtListener may still serve it directly." : ".");
+      flow.appendChild(er);
+    }
+  }
+  async function annexSearchUI(kind, q) {
+    if (!Catalog.remoteEnabled()) {
+      $("searchErr").textContent = "The Annex lives on the self-hosted catalog \u2014 it isn\u2019t configured here.";
+      return;
+    }
+    $("searchErr").textContent = "";
+    $("searchSpin").style.display = "block";
+    $("searchList").innerHTML = "";
+    try {
+      const docs = await Catalog.annexSearch(kind, q);
+      $("searchSpin").style.display = "none";
+      if (!docs.length) {
+        $("searchErr").textContent = kind === "papers"
+          ? "arXiv has nothing under that \u2014 try broader terms."
+          : "No opinions matched \u2014 try a case name or a doctrine.";
+        return;
+      }
+      for (const d of docs) {
+        const row = document.createElement("div");
+        row.className = "srow";
+        row.innerHTML = '<div class="noimg"></div>' +
+          '<div style="min-width:0"><div class="st"></div><div class="sm"></div></div>' +
+          '<div class="badge">Full text</div>';
+        row.querySelector(".noimg").textContent = kind === "papers" ? "\u00a7" : "\u2696";
+        row.querySelector(".st").textContent = d.title;
+        row.querySelector(".sm").textContent = kind === "papers"
+          ? ((d.authors || []).join(", ") + (d.year ? " \u00b7 " + d.year : "") + " \u00b7 arXiv " + d.id)
+          : [d.court, d.year, d.cite].filter(Boolean).join(" \u00b7 ");
+        row.addEventListener("click", () => (kind === "papers" ? openPaper(d) : openCase(d)));
+        $("searchList").appendChild(row);
+      }
+    } catch (e) {
+      $("searchSpin").style.display = "none";
+      $("searchErr").textContent = "The Annex is unreachable \u2014 " + (e.message || "network error");
+    }
+  }
   async function doSearch() {
     const q = $("searchInput").value.trim();
     if (q.length < 2) { $("searchErr").textContent = "Give the librarian at least a couple of characters."; return; }
+    if (searchTab !== "books") return annexSearchUI(searchTab, q);
     $("searchErr").textContent = "";
     $("searchSpin").style.display = "block";
     $("searchList").innerHTML = "";
