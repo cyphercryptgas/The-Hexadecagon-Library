@@ -13,7 +13,7 @@
 <script>
   // Plateau 1: paste your Railway catalog URL here (e.g. "https://stacks-catalog-production.up.railway.app").
   // Leave empty to use the live Open Library API directly.
-  window.CATALOG_BASE = "https://stacks-catalog-production.up.railway.app";
+  window.CATALOG_BASE = "stacks-catalog-production.up.railway.app";
 </script>
 <style>
   :root{
@@ -2626,6 +2626,15 @@ const World = (() => {
     loadCurrent();
   }
 
+  // ---------- portals: realm state (declared before boot calls syncPortals) ----------
+  const REALM_LABEL = { stacks: "The Stacks", research: "The Research Wing", law: "The Law Library" };
+  let realm = "stacks";
+  const realmPos = {
+    stacks: { si: 0, depth: 0 },
+    research: { si: 0, depth: 0 },
+    law: { si: 0, depth: 0 },
+  };
+
   // ---------- boot ----------
   World.init($("scene"));
   syncPortals();
@@ -2854,14 +2863,7 @@ const World = (() => {
         : "Depth " + depth + " \u2014 toward the famous"));
   });
 
-  // ---------- portals: the wings ----------
-  const REALM_LABEL = { stacks: "The Stacks", research: "The Research Wing", law: "The Law Library" };
-  let realm = "stacks";
-  const realmPos = {
-    stacks: { si: 0, depth: 0 },
-    research: { si: 0, depth: 0 },
-    law: { si: 0, depth: 0 },
-  };
+  // ---------- portals: the wings (state hoisted above boot) ----------
   function syncPortals() {
     World.setPortals(realm === "stacks"
       ? [{ name: "research", label: "THE RESEARCH WING", active: Catalog.wingActive("research") },
