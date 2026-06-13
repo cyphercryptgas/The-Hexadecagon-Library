@@ -2499,6 +2499,7 @@ const World = (() => {
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     installPrompt = e;
+    try { localStorage.setItem("hexlib:installed", "0"); } catch (err) {}
     $("installBtn").classList.remove("hidden");
     $("installNote").textContent = "";
   });
@@ -2510,19 +2511,45 @@ const World = (() => {
     if (c && c.outcome === "accepted") $("installBtn").classList.add("hidden");
   });
   window.addEventListener("appinstalled", () => {
+    try { localStorage.setItem("hexlib:installed", "1"); } catch (err) {}
     $("installBtn").classList.add("hidden");
     $("installNote").textContent = "Installed \u2014 the library is on your home screen.";
     toast("The library is installed");
   });
   (function installNote() {
+    const note = $("installNote");
     const standalone = matchMedia("(display-mode: standalone)").matches ||
       navigator.standalone === true;
     const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    if (standalone) $("installNote").textContent = "You\u2019re reading in the installed app.";
-    else if (isIOS) $("installNote").textContent =
-      "On iPhone or iPad: open this page in Safari, tap Share, then \u201cAdd to Home Screen\u201d.";
-    else $("installNote").textContent =
-      "Your browser will offer the install button here once the page settles.";
+    const isAndroid = /android/i.test(navigator.userAgent);
+    let installed = false;
+    try { installed = localStorage.getItem("hexlib:installed") === "1"; } catch (e) {}
+    if (standalone) { note.textContent = "You\u2019re reading in the installed app."; return; }
+    if (isIOS) {
+      note.innerHTML = "On iPhone or iPad this works in <b>Safari</b> only: tap the <b>Share</b> button " +
+        "(the square with the arrow), scroll down, tap <b>Add to Home Screen</b>, then <b>Add</b>.";
+      return;
+    }
+    note.textContent = installed
+      ? "Already installed \u2014 find The Hexadecagon Library on your home screen or in your app list."
+      : "Checking whether your browser will offer installation\u2026";
+    // verify the install files actually shipped alongside index.html
+    fetch("manifest.webmanifest", { cache: "no-store" }).then((r) => {
+      if (!r.ok) note.textContent =
+        "manifest.webmanifest is missing from this deployment \u2014 the PWA files " +
+        "(manifest, sw.js, icons) must sit next to index.html for installation to work.";
+    }).catch(() => {});
+    // if the browser withholds the prompt, give the manual path
+    setTimeout(() => {
+      if (installPrompt || standalone || !$("installBtn").classList.contains("hidden")) return;
+      note.innerHTML = installed
+        ? "Already installed \u2014 open it from your home screen or app list. " +
+          "(Browsers only show the install button when the app isn\u2019t installed yet.)"
+        : (isAndroid
+          ? "No prompt? In Chrome tap the <b>\u22ee</b> menu \u2192 <b>Add to Home screen</b> \u2192 <b>Install</b>."
+          : "No prompt? In Chrome or Edge click the <b>install icon</b> at the right end of the address bar, " +
+            "or the <b>\u22ee</b> menu \u2192 <b>Cast, save and share</b> \u2192 <b>Install page as app\u2026</b>");
+    }, 3500);
   })();
   if ("serviceWorker" in navigator && location.protocol === "https:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
