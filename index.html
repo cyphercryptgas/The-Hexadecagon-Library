@@ -2801,8 +2801,8 @@ const World = (() => {
       const myKey2 = b.key;
       const still = () => reader && reader.list[reader.idx] && reader.list[reader.idx].key === myKey2;
       if (!b.gutenberg && !b._gutChecked) {
-        b._gutChecked = true;
         Catalog.findGutenberg(b.title, b.author).then((r) => {
+          if (r) b._gutChecked = true; // a definitive answer — even a definitive "no"
           if (r && r.gutenberg) { b.gutenberg = r.gutenberg; if (still()) renderReader(); }
         });
       }
