@@ -255,7 +255,10 @@
   #about .srclist code{color:var(--amber);font-size:12px;background:rgba(200,163,90,.08);padding:1px 5px;border-radius:3px}
   #about .dim{color:#7a6336;font-style:italic}
   #diagWrap{margin:10px 0 6px;border:1px solid var(--line-soft);background:rgba(7,5,3,.5);border-radius:4px;overflow:hidden}
-  #diagCanvasHolder{position:relative;width:100%;height:300px}
+  #diagCanvasHolder{position:relative;width:100%;height:440px}
+  #diagViews{position:absolute;right:10px;top:10px;display:flex;gap:6px}
+  #diagViews button{font-size:11px;padding:4px 10px;background:rgba(40,30,18,.82);color:var(--amber);border:1px solid var(--line-soft);border-radius:6px;cursor:pointer;letter-spacing:.05em;font-family:inherit}
+  #diagViews button:hover{background:rgba(60,46,26,.95)}
   #diagCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
   #diagCanvas:active{cursor:grabbing}
   #diagHint{position:absolute;left:10px;bottom:8px;font-size:11px;color:#6f5a33;letter-spacing:.08em;pointer-events:none}
@@ -495,14 +498,20 @@
     <h3>How the stacks are arranged</h3>
     <p>Sixty-four subjects form a ring of galleries: walk through a doorway and you pass to the next subject. Each gallery holds 640 volumes — four walls, five shelves, thirty-two books. The spiral stair is walkable: a full turn down carries you one page deeper within every subject at once. Shallow galleries hold the most-published works; the deeper you descend, the rarer the books become — until a subject runs out, and the empty shelves below wait for books not yet written.</p>
 
-    <h3>The structure, from above</h3>
-    <p>The whole library is a ring of sixty-four galleries with floors descending beneath, and wings that branch off into the literature, the law, and the music. Turn it, and look:</p>
+    <h3>The structure</h3>
+    <p>The whole library is a ring of sixteen galleries that close into a hexadecagon, with levels descending beneath and a spiral stair threading every vestibule. Turn it, tip it, and look:</p>
     <div id="diagWrap">
-      <div id="diagCanvasHolder"><canvas id="diagCanvas"></canvas></div>
-      <div id="diagHint">drag to turn &middot; hover a part to name it</div>
+      <div id="diagCanvasHolder"><canvas id="diagCanvas"></canvas>
+        <div id="diagViews">
+          <button type="button" id="diagTop">top</button>
+          <button type="button" id="diagFront">front</button>
+          <button type="button" id="diagStairs">stairs</button>
+        </div>
+      </div>
+      <div id="diagHint">drag to turn &amp; tilt &middot; scroll to zoom &middot; hover to name</div>
       <div id="diagLabel">&nbsp;</div>
     </div>
-    <p style="font-size:12.5px;color:#8a7448">A model of the architecture, not the live stacks \u2014 the real galleries stream in as you walk, three rooms at a time, so the library is far larger than any one view holds. Drag to turn it; hover a part to name it.</p>
+    <p style="font-size:12.5px;color:#8a7448">A model of the architecture, not the live stacks \u2014 the real galleries stream in as you walk, three rooms at a time, so the library is far larger than any one view holds. From the front, the near rooms fade so the stairs show all the way down.</p>
 
     <h3>What stands on the shelves</h3>
     <p>The main ring is drawn live from <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> — records for tens of millions of published books, with covers and scans from the <a href="https://archive.org" target="_blank" rel="noopener">Internet Archive</a>, full public-domain texts from <a href="https://www.gutenberg.org" target="_blank" rel="noopener">Project Gutenberg</a>, and human-read audiobooks from <a href="https://librivox.org" target="_blank" rel="noopener">LibriVox</a>. Beyond the ring, three wings open through doorways:</p>
@@ -2897,172 +2906,133 @@ const World = (() => {
     const canvas = $("diagCanvas");
     if (!canvas || typeof THREE === "undefined") return;
     const holder = $("diagCanvasHolder");
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+
+    // mobile / low-power detection: fewer levels, no per-frame x-ray loop
+    const LOW = (function () {
+      const touch = matchMedia("(pointer: coarse)").matches;
+      const narrow = Math.min(window.innerWidth, window.innerHeight) < 760;
+      const fewCores = (navigator.hardwareConcurrency || 8) <= 4;
+      return (touch && narrow) || fewCores;
+    })();
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW, alpha: true,
+      powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(LOW ? 1.5 : 2, window.devicePixelRatio || 1));
     const scene = new THREE.Scene();
-    const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 400);
-    const root = new THREE.Group();
-    scene.add(root);
+    const cam = new THREE.PerspectiveCamera(46, 1, 0.1, 9000);
+    const root = new THREE.Group(); scene.add(root);
+    scene.add(new THREE.AmbientLight(0xfff1d8, 0.66));
+    const key = new THREE.DirectionalLight(0xffe2b0, 0.95); key.position.set(80, 200, 100); scene.add(key);
+    const fillL = new THREE.DirectionalLight(0x9fb4d8, 0.36); fillL.position.set(-90, 80, -60); scene.add(fillL);
+    const under = new THREE.DirectionalLight(0xffe2b0, 0.2); under.position.set(0, -100, 0); scene.add(under);
 
-    // ---- warm gallery lighting ----
-    scene.add(new THREE.AmbientLight(0xfff1d8, 0.55));
-    const key = new THREE.DirectionalLight(0xffe2b0, 0.85);
-    key.position.set(8, 16, 10); scene.add(key);
-    const fill = new THREE.DirectionalLight(0x9fb4d8, 0.3);
-    fill.position.set(-10, 6, -8); scene.add(fill);
+    const SIDE = 3.4, APO = SIDE * Math.sqrt(3) / 2, CEIL = 2.30, SLAB = 0.22, LEVEL_H = CEIL + SLAB;
+    const VEST = 2.6, PITCH = 2 * APO + VEST, RAIL = 1.42, DOOR_W = 1.04, DOOR_H = 2.04, DOOR_Z = -0.56;
+    const STAIR_R = 0.72, STEPS_PER_TURN = 12;
+    const WALL_DEG = [60, 300, 120, 240], SHELF_W = SIDE - 0.30;
+    const N = 16, RING_R = PITCH / (2 * Math.sin(Math.PI / N));
+    const SEG = 2 * Math.PI / N, CHORD = 2 * RING_R * Math.sin(SEG / 2);
+    const FLOORS = LOW ? 8 : 15;
+    const XRAY_LIVE = !LOW; // desktop fades rooms per-frame; mobile stays static
 
-    // ---- palette ----
-    const WOOD = 0x6b4f30, WOOD_D = 0x4f3a22, FLOOR = 0x3c2c1a, RAIL = 0x2a1e12;
-    const BRASS = 0xc8a35a, PAPER = 0xddc9a3, AMBER = 0xffb45e;
-    const mat = (c, rough, emi) => new THREE.MeshStandardMaterial({
-      color: c, roughness: rough == null ? 0.7 : rough, metalness: 0.05,
-      emissive: emi || 0x000000, emissiveIntensity: emi ? 0.4 : 0,
-    });
+    const WOOD = 0x6b4f30, WOOD_D = 0x4f3a22, FLOORC = 0x3c2c1a, BRASS = 0xc8a35a,
+      STONE = 0x6f6356, BRASS_HI = 0xe8be6a;
+    const GEO = {
+      floor: new THREE.CylinderGeometry(SIDE, SIDE, 0.12, 6),
+      ceil: new THREE.CylinderGeometry(SIDE, SIDE, 0.10, 6),
+      back: new THREE.BoxGeometry(SHELF_W, CEIL - 0.1, 0.10),
+      board: new THREE.BoxGeometry(SHELF_W * 0.96, 0.035, 0.26),
+      books: new THREE.BoxGeometry(SHELF_W * 0.92, 0.26, 0.20),
+      jamb: new THREE.BoxGeometry(0.2, DOOR_H, 0.14),
+      lint: new THREE.BoxGeometry(0.24, 0.18, DOOR_W + 0.3),
+      rail: new THREE.TorusGeometry(RAIL, 0.04, 6, 24),
+      pole: new THREE.CylinderGeometry(0.14, 0.14, LEVEL_H + 0.3, 12),
+      tread: new THREE.BoxGeometry(STAIR_R + 0.12, 0.09, 0.42),
+      bal: new THREE.CylinderGeometry(0.022, 0.022, 0.36, 6),
+      vfloor: new THREE.BoxGeometry(CHORD * 0.92, 0.12, 2.7),
+      vwall: new THREE.BoxGeometry(CHORD * 0.92, 1.5, 0.10),
+    };
+    function mkmat(c, r, emi, emiI) {
+      return new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.75 : r,
+        metalness: 0.05, emissive: emi || 0, emissiveIntensity: emiI || 0,
+        side: THREE.DoubleSide, transparent: true, opacity: 1 });
+    }
     const pickables = [];
-    function tag(obj, label) { obj.userData.label = label; pickables.push(obj); return obj; }
+    function tag(o, l) { o.userData.label = l; pickables.push(o); return o; }
+    function depthOp(f) { return Math.max(0.30, 1 - f * (LOW ? 0.070 : 0.046)); }
+    const roomMats = [], stairMats = [];
 
-    // geometry helpers reused across floors
-    const SIDES = 16, RREAD = 5.4, WALL_H = 1.5, FLOOR_GAP = 2.6;
-    const woodMat = mat(WOOD, 0.78), woodDMat = mat(WOOD_D, 0.8),
-      floorMat = mat(FLOOR, 0.9), shelfMat = mat(WOOD_D, 0.7), bookMatBase = mat(PAPER, 0.6);
-
-    // build one hexadecagonal gallery floor at height y
-    function gallery(y, opacity) {
+    function buildRoom(withBooks, baseOp) {
       const g = new THREE.Group();
-      g.position.y = y;
-      const trans = opacity != null && opacity < 1;
-      function withOp(m) {
-        if (!trans) return m;
-        const c = m.clone(); c.transparent = true; c.opacity = opacity; return c;
-      }
-      // floor ring (a flat 16-gon)
-      const floorGeo = new THREE.CylinderGeometry(RREAD + 0.5, RREAD + 0.5, 0.12, SIDES);
-      const floor = new THREE.Mesh(floorGeo, withOp(floorMat));
-      g.add(floor);
-      // 16 wall panels with shelf rows + book strips
-      for (let i = 0; i < SIDES; i++) {
-        const a = (i / SIDES) * Math.PI * 2;
-        const nx = Math.cos(a), nz = Math.sin(a);
-        const wseg = new THREE.Group();
-        wseg.position.set(nx * RREAD, WALL_H / 2, nz * RREAD);
-        wseg.rotation.y = -a + Math.PI / 2;
-        // back wall panel
-        const panelW = (2 * Math.PI * RREAD / SIDES) * 0.96;
-        const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, WALL_H, 0.08), withOp(woodDMat));
-        wseg.add(panel);
-        // 4 shelf boards + book rows in front of the panel
-        for (let s = 0; s < 4; s++) {
-          const sy = -WALL_H / 2 + 0.22 + s * 0.34;
-          const board = new THREE.Mesh(new THREE.BoxGeometry(panelW * 0.9, 0.03, 0.12), withOp(shelfMat));
-          board.position.set(0, sy, 0.09);
-          wseg.add(board);
-          if (!trans) {
-            // a strip of "books" = thin colored boxes
-            const books = new THREE.Mesh(new THREE.BoxGeometry(panelW * 0.86, 0.20, 0.10),
-              mat(0x8a6b46 + ((i * 7 + s * 53) % 64) * 0x010101, 0.6));
-            books.position.set(0, sy + 0.12, 0.10);
-            wseg.add(books);
+      function rm(c, r, emi, emiI) { const m = mkmat(c, r, emi, emiI); m.userData.base = baseOp; m.opacity = baseOp; roomMats.push(m); return m; }
+      const fl = new THREE.Mesh(GEO.floor, rm(FLOORC, 0.9)); fl.rotation.y = Math.PI / 6; g.add(fl);
+      const cl = new THREE.Mesh(GEO.ceil, rm(0x2a1f14, 0.9)); cl.rotation.y = Math.PI / 6; cl.position.y = CEIL; g.add(cl);
+      WALL_DEG.forEach(function (deg) {
+        const a = deg * Math.PI / 180;
+        const w = new THREE.Group(); w.position.set(Math.cos(a) * APO, CEIL / 2, Math.sin(a) * APO); w.rotation.y = -a + Math.PI / 2;
+        w.add(new THREE.Mesh(GEO.back, rm(WOOD_D, 0.8)));
+        for (let s = 0; s < 5; s++) {
+          const sy = -CEIL / 2 + 0.28 + s * 0.40;
+          const bd = new THREE.Mesh(GEO.board, rm(WOOD_D, 0.7)); bd.position.set(0, sy, 0.14); w.add(bd);
+          if (withBooks) {
+            const col = 0x8a6b46 + ((deg + s * 37) % 70) * 0x010101;
+            const bk = new THREE.Mesh(GEO.books, rm(col, 0.6)); bk.position.set(0, sy + 0.16, 0.16); w.add(bk);
           }
         }
-        g.add(wseg);
-      }
-      // four doorway gaps suggested by slightly taller posts at N/E/S/W
-      for (const di of [0, 4, 8, 12]) {
-        const a = (di / SIDES) * Math.PI * 2;
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, WALL_H + 0.3, 0.12), withOp(woodMat));
-        post.position.set(Math.cos(a) * (RREAD + 0.2), (WALL_H + 0.3) / 2, Math.sin(a) * (RREAD + 0.2));
-        g.add(post);
-      }
+        g.add(w);
+      });
+      [1, -1].forEach(function (sgn) {
+        [-1, 1].forEach(function (js) {
+          const jb = new THREE.Mesh(GEO.jamb, rm(STONE, 0.85)); jb.position.set(sgn * (APO - 0.02), DOOR_H / 2, DOOR_Z + js * (DOOR_W / 2 + 0.07)); g.add(jb);
+        });
+        const li = new THREE.Mesh(GEO.lint, rm(STONE, 0.85)); li.position.set(sgn * (APO - 0.02), DOOR_H + 0.09, DOOR_Z); g.add(li);
+      });
+      const rl = new THREE.Mesh(GEO.rail, rm(BRASS, 0.4, BRASS, 0.2)); rl.rotation.x = Math.PI / 2; rl.position.y = 0.5; g.add(rl);
       return g;
     }
-
-    // ---- the floors: one bright top floor, three dimmer below ----
-    const FLOORS = 4;
-    const floorsGroup = new THREE.Group();
-    for (let f = 0; f < FLOORS; f++) {
-      const y = -f * FLOOR_GAP;
-      const op = f === 0 ? 1 : 0.5 - f * 0.08;
-      floorsGroup.add(gallery(y, f === 0 ? 1 : op));
-    }
-    // a transparent pick volume for the whole stack of galleries
-    const ringPick = new THREE.Mesh(
-      new THREE.CylinderGeometry(RREAD + 1, RREAD + 1, FLOORS * FLOOR_GAP, SIDES),
-      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001 }));
-    ringPick.position.y = -((FLOORS - 1) * FLOOR_GAP) / 2;
-    tag(ringPick, "The Stacks \u2014 64 galleries of published books, descending into the rare");
-    floorsGroup.add(ringPick);
-    root.add(floorsGroup);
-
-    // ---- the real spiral staircase down the centre ----
-    const stair = new THREE.Group();
-    const STAIR_R = 1.4, TURNS = FLOORS, STEPS = FLOORS * 18;
-    const pole = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.16, 0.16, FLOORS * FLOOR_GAP + 0.4, 14), mat(BRASS, 0.4, BRASS));
-    pole.position.y = -((FLOORS - 1) * FLOOR_GAP) / 2;
-    stair.add(pole);
-    for (let s = 0; s < STEPS; s++) {
-      const a = (s / 18) * Math.PI * 2;
-      const yy = 0.2 - (s / STEPS) * (FLOORS * FLOOR_GAP);
-      const step = new THREE.Mesh(new THREE.BoxGeometry(STAIR_R, 0.07, 0.5), mat(WOOD, 0.6));
-      step.position.set(Math.cos(a) * STAIR_R * 0.55, yy, Math.sin(a) * STAIR_R * 0.55);
-      step.rotation.y = -a;
-      stair.add(step);
-      // a little brass baluster at each step's outer edge
-      if (s % 2 === 0) {
-        const bal = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.34, 6), mat(BRASS, 0.4));
-        bal.position.set(Math.cos(a) * STAIR_R, yy + 0.18, Math.sin(a) * STAIR_R);
-        stair.add(bal);
-      }
-    }
-    tag(stair, "The spiral stair \u2014 one turn down is one page deeper");
-    root.add(stair);
-
-    // ---- the wings: little gallery wings branching off ----
-    function wingModel(angleDeg, color, label, built) {
+    function buildVestibule(baseOp) {
       const g = new THREE.Group();
-      const a = angleDeg * Math.PI / 180;
-      const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-      const side = new THREE.Vector3(-Math.sin(a), 0, Math.cos(a));
-      const op = built ? 1 : 0.25;
-      const cmat = new THREE.MeshStandardMaterial({
-        color, roughness: 0.7, transparent: !built, opacity: op, emissive: 0x0a0a0a });
-      // a covered corridor from the ring out to a small gallery
-      const corrLen = 3.2;
-      for (let k2 = 0; k2 < 5; k2++) {
-        const t2 = k2 / 4;
-        const base = dir.clone().multiplyScalar(RREAD + 0.6 + t2 * corrLen);
-        // two low walls forming the corridor
-        for (const sgn of [-1, 1]) {
-          const w = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.12), cmat);
-          const p = base.clone().add(side.clone().multiplyScalar(sgn * 0.55));
-          w.position.set(p.x, 0.4, p.z);
-          w.rotation.y = -a;
-          g.add(w);
+      function rm(c, r) { const m = mkmat(c, r); m.userData.base = baseOp; m.opacity = baseOp; roomMats.push(m); return m; }
+      function sm(c, r, emi, emiI) { const m = mkmat(c, r, emi, emiI); const so = Math.max(baseOp, 0.8); m.userData.base = so; m.opacity = so; stairMats.push(m); return m; }
+      const vf = new THREE.Mesh(GEO.vfloor, rm(0x3a2a18, 0.9)); vf.position.set(0, 0, DOOR_Z + 0.3); g.add(vf);
+      const bw = new THREE.Mesh(GEO.vwall, rm(WOOD_D, 0.82)); bw.position.set(0, 0.75, DOOR_Z + 1.55); g.add(bw);
+      const s2 = new THREE.Group(); s2.position.set(0, 0, 0.60);
+      const pole = new THREE.Mesh(GEO.pole, sm(BRASS_HI, 0.35, BRASS_HI, 0.7)); pole.position.y = LEVEL_H / 2; s2.add(pole);
+      for (let s = 0; s < STEPS_PER_TURN; s++) {
+        const a = (s / STEPS_PER_TURN) * Math.PI * 2, yy = 0.12 + (s / STEPS_PER_TURN) * LEVEL_H;
+        const t = new THREE.Mesh(GEO.tread, sm(0x9a7340, 0.5)); t.position.set(Math.cos(a) * STAIR_R * 0.55, yy, Math.sin(a) * STAIR_R * 0.55); t.rotation.y = -a; s2.add(t);
+        if (!LOW || s % 2 === 0) {
+          const bb = new THREE.Mesh(GEO.bal, sm(BRASS_HI, 0.4, BRASS_HI, 0.6)); bb.position.set(Math.cos(a) * STAIR_R, yy + 0.18, Math.sin(a) * STAIR_R); s2.add(bb);
         }
       }
-      // the wing's little gallery: a small ring of shelf-blocks
-      const hub = dir.clone().multiplyScalar(RREAD + 0.6 + corrLen + 1.5);
-      for (let j = 0; j < 8; j++) {
-        const aa = (j / 8) * Math.PI * 2;
-        const blk = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.0, 0.3), cmat);
-        blk.position.set(hub.x + Math.cos(aa) * 1.3, 0.5, hub.z + Math.sin(aa) * 1.3);
-        blk.rotation.y = -aa;
-        g.add(blk);
-      }
-      const hubFloor = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.8, 1.8, 0.1, 16),
-        new THREE.MeshStandardMaterial({ color, roughness: 0.85, transparent: !built, opacity: built ? 0.9 : 0.2 }));
-      hubFloor.position.set(hub.x, 0, hub.z);
-      g.add(hubFloor);
-      tag(g, label);
+      g.add(s2);
       return g;
     }
-    root.add(wingModel(35, 0x9ab0d4, "The Research Wing \u2014 papers, textbooks, open books", true));
-    root.add(wingModel(150, 0xce9a9a, "The Law Library \u2014 opinions, statutes, dockets", true));
-    root.add(wingModel(265, 0xc4b0e4, "The Music Wing \u2014 planned, not yet built", false));
 
-    // ---- interaction: drag to spin, hover to name ----
-    let yaw = 0.6, pitch = 0.32, dragging = false, lx = 0, ly = 0, autoSpin = true;
+    for (let f = 0; f < FLOORS; f++) {
+      const fy = -f * LEVEL_H, op = depthOp(f), withBooks = (f < 2);
+      for (let i = 0; i < N; i++) {
+        const ang = (i / N) * Math.PI * 2;
+        const rmm = buildRoom(withBooks, op);
+        rmm.position.set(Math.cos(ang) * RING_R, fy, Math.sin(ang) * RING_R);
+        rmm.rotation.y = -ang; root.add(rmm);
+        const segAng = ((i + 0.5) / N) * Math.PI * 2;
+        const vb = buildVestibule(op);
+        vb.position.set(Math.cos(segAng) * RING_R, fy, Math.sin(segAng) * RING_R);
+        vb.rotation.y = -segAng; root.add(vb);
+      }
+    }
+    const ringPick = new THREE.Mesh(
+      new THREE.CylinderGeometry(RING_R + SIDE, RING_R + SIDE, FLOORS * LEVEL_H, 48, 1, true),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001, side: THREE.DoubleSide }));
+    ringPick.position.y = -((FLOORS - 1) * LEVEL_H) / 2;
+    tag(ringPick, "The hexadecagon \u2014 sixteen galleries closing the ring; the stairs thread every vestibule, all the way down");
+    root.add(ringPick);
+    const seam = new THREE.Mesh(new THREE.TorusGeometry(RING_R, 0.07, 8, 120), mkmat(BRASS, 0.4, BRASS, 0.2));
+    seam.rotation.x = Math.PI / 2; seam.position.y = 0.05; root.add(seam);
+
+    let yaw = 0.4, pitch = 0.55, dragging = false, lx = 0, ly = 0, autoSpin = true,
+      zoom = 1, tgtPitch = null, xray = 0, tgtXray = 0;
     const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
     function setLabel(t) { $("diagLabel").textContent = t || "\u00a0"; }
     function onHover(cx, cy) {
@@ -3076,20 +3046,25 @@ const World = (() => {
       setLabel(obj && obj.userData ? obj.userData.label : "");
     }
     canvas.addEventListener("pointerdown", (e) => {
-      dragging = true; autoSpin = false; lx = e.clientX; ly = e.clientY;
+      dragging = true; autoSpin = false; tgtPitch = null; lx = e.clientX; ly = e.clientY;
       try { canvas.setPointerCapture(e.pointerId); } catch (er) {}
     });
-    canvas.addEventListener("pointerup", (e) => {
-      dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch (er) {}
-    });
+    canvas.addEventListener("pointerup", (e) => { dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch (er) {} });
     canvas.addEventListener("pointermove", (e) => {
       if (dragging) {
-        yaw += (e.clientX - lx) * 0.01;
-        pitch = Math.max(-0.2, Math.min(1.2, pitch + (e.clientY - ly) * 0.006));
+        yaw += (e.clientX - lx) * 0.008;
+        pitch = Math.max(0.02, Math.min(1.52, pitch + (e.clientY - ly) * 0.006));
         lx = e.clientX; ly = e.clientY;
       } else onHover(e.clientX, e.clientY);
     });
     canvas.addEventListener("pointerleave", () => setLabel(""));
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault(); zoom = Math.max(0.45, Math.min(3.4, zoom + (e.deltaY > 0 ? 0.1 : -0.1)));
+    }, { passive: false });
+    const btnTop = $("diagTop"), btnFront = $("diagFront"), btnStairs = $("diagStairs");
+    if (btnTop) btnTop.onclick = () => { autoSpin = false; tgtPitch = 1.50; tgtXray = 0; };
+    if (btnFront) btnFront.onclick = () => { autoSpin = false; tgtPitch = 0.06; tgtXray = 0; };
+    if (btnStairs) btnStairs.onclick = () => { autoSpin = false; tgtPitch = 0.10; tgtXray = (tgtXray > 0.5 ? 0 : 1); };
 
     function resize() {
       const w = holder.clientWidth, h = holder.clientHeight;
@@ -3097,14 +3072,28 @@ const World = (() => {
       renderer.setSize(w, h, false);
       cam.aspect = w / h; cam.updateProjectionMatrix();
     }
-    const CY = -((FLOORS - 1) * FLOOR_GAP) / 2; // centre of the stack
+    const midY = -((FLOORS - 1) * LEVEL_H) / 2;
     function frame() {
       requestAnimationFrame(frame);
-      if (autoSpin) yaw += 0.0022;
+      if (tgtPitch != null) { pitch += (tgtPitch - pitch) * 0.12; if (Math.abs(tgtPitch - pitch) < 0.01) { pitch = tgtPitch; tgtPitch = null; } }
+      xray += (tgtXray - xray) * 0.1;
+      if (XRAY_LIVE) {
+        const frontal = Math.max(0, 1 - pitch / 0.5);
+        const fade = Math.max(xray, frontal * 0.82);
+        for (let k = 0; k < roomMats.length; k++) { const m = roomMats[k]; m.opacity = m.userData.base * (1 - fade * 0.80); }
+        for (let k2 = 0; k2 < stairMats.length; k2++) { const sm2 = stairMats[k2]; sm2.opacity = Math.min(1, sm2.userData.base + fade * 0.2); }
+      } else if (Math.abs(tgtXray - xray) > 0.001 || xray > 0.001) {
+        // mobile: only recompute opacity when the stairs toggle is animating
+        const fade = xray;
+        for (let k = 0; k < roomMats.length; k++) { const m = roomMats[k]; m.opacity = m.userData.base * (1 - fade * 0.80); }
+      }
+      if (autoSpin) yaw += 0.0013;
       root.rotation.y = yaw;
-      const dist = 17;
-      cam.position.set(0, CY + 4 + pitch * 10, dist);
-      cam.lookAt(0, CY + 0.5, 0);
+      const p = pitch, dist = RING_R * 2.7 * zoom;
+      const camY = midY + Math.sin(p) * dist * 1.1 + LEVEL_H * 2;
+      const camDist = Math.cos(p) * dist;
+      cam.position.set(0, camY, camDist + 0.001);
+      cam.lookAt(0, midY + LEVEL_H, 0);
       renderer.render(scene, cam);
     }
     resize(); frame();
