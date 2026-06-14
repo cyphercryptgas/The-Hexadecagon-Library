@@ -1001,7 +1001,7 @@ const World = (() => {
     dYaw: 0, dPitch: 0,      // look smoothing: pending rotation to ease out
     bob: 0, bobPhase: 0 };   // head-bob accumulator
   // walkable spiral stair: the player rides a smooth helix; depth swaps under their feet
-  const stair = { on: false, thetaU: 0, h: 0, rEase: 0.70 }; // rEase reset on boarding
+  const stair = { on: false, thetaU: 0, h: 0, rEase: 0.70, intentR: null }; // rEase/intentR reset on boarding
   const SCX = APO + VEST / 2;            // stair-pole |x| — sits exactly on the treadmill seam
   const R_IN = 0.18, R_OUT = 0.78, R_WALK = 0.70, ENTRY_H = 0.55, R_BOARD = STAIR_R + 0.45;
   function stairLocal(x, z) {
@@ -2217,7 +2217,7 @@ const World = (() => {
         const hEntry = (L.th / (2 * Math.PI)) * LEVEL_H;
         if (L.r < R_BOARD && Math.abs(nx) > APO + 0.05 && Math.abs(hEntry) <= ENTRY_H) {
           const rr = Math.min(R_WALK, Math.max(R_IN, L.r || 1e-6));
-          stair.on = true; stair.thetaU = L.th; stair.h = hEntry; stair.rEase = rr;
+          stair.on = true; stair.thetaU = L.th; stair.h = hEntry; stair.rEase = rr; stair.intentR = rr;
           player.x = L.sx * SCX + (L.u / (L.r || 1e-6)) * rr;
           player.z = STAIR_Z + (L.v / (L.r || 1e-6)) * rr;
         } else {
@@ -2226,21 +2226,29 @@ const World = (() => {
       } else {
         // ---- riding the helix: guide, don't railroad ----
         const raw = stairLocal(nx, nz);
-        // hop off at a landing if pushing outward onto a real floor
-        if (Math.abs(stair.h) < ENTRY_H && raw.r > R_WALK + 0.06) {
-          const ex = raw.sx * SCX + (raw.u / (raw.r || 1e-6)) * (STAIR_R + 0.22);
-          const ez = STAIR_Z + (raw.v / (raw.r || 1e-6)) * (STAIR_R + 0.22);
+        // Track the player's *intended* radius with little lag so a deliberate
+        // outward push can actually reach the landing (the old eased radius
+        // lagged so far behind that you could never step off).
+        stair.intentR = (stair.intentR == null ? raw.r : stair.intentR);
+        stair.intentR += (raw.r - stair.intentR) * Math.min(1, 40 * dt);
+        // Hop off onto a floor: near a landing AND pushing outward past the rail.
+        if (Math.abs(stair.h) < ENTRY_H && stair.intentR > STAIR_R - 0.02) {
+          const dirU = raw.u / (raw.r || 1e-6), dirV = raw.v / (raw.r || 1e-6);
+          const ex = raw.sx * SCX + dirU * (STAIR_R + 0.32);
+          const ez = STAIR_Z + dirV * (STAIR_R + 0.32);
           if (walkable(ex, ez)) {
-            stair.on = false; stair.h = 0;
+            stair.on = false; stair.h = 0; stair.intentR = null;
             player.x = ex; player.z = ez;
+            player.vx = 0; player.vz = 0;
           }
         }
         if (stair.on) {
-          // Let the player's intended radius ease toward the comfortable band
-          // instead of hard-snapping every frame. This removes the "rail" feel.
-          const wantR = Math.min(R_WALK, Math.max(R_IN, raw.r || 1e-6));
-          stair.rEase += (wantR - stair.rEase) * Math.min(1, 10 * dt);
-          const rr = stair.rEase;
+          // ride radius eases for smoothness but follows intent (and may reach a
+          // bit past R_WALK toward the rail) so pushing outward isn't fought.
+          const wantR = Math.min(R_WALK + 0.10, Math.max(R_IN, stair.intentR));
+          stair.rEase += (wantR - stair.rEase) * Math.min(1, 30 * dt);
+          const rr = Math.min(R_WALK, stair.rEase); // clamp visual radius to walkable band
+
           // follow the angle the player actually walked to (smooth ascent)
           const cur = Math.atan2(SIN(stair.thetaU), COS(stair.thetaU));
           let dth = raw.th - cur;
