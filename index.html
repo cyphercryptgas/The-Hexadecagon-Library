@@ -260,6 +260,15 @@
   #diagViews button{font-size:11px;padding:4px 10px;background:rgba(40,30,18,.82);color:var(--amber);border:1px solid var(--line-soft);border-radius:6px;cursor:pointer;letter-spacing:.05em;font-family:inherit}
   #diagViews button:hover{background:rgba(60,46,26,.95)}
   #diagViews button.on{background:var(--amber);color:#231803;border-color:var(--amber)}
+  #dirList{margin-top:14px;max-height:52vh;overflow-y:auto;padding-right:4px}
+  .dir-group{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brass-dim);margin:16px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line-soft)}
+  .dir-group:first-child{margin-top:2px}
+  .dir-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px}
+  .dir-item{display:flex;align-items:baseline;gap:8px;padding:8px 11px;background:rgba(255,255,255,.015);border:1px solid var(--line-soft);border-radius:7px;cursor:pointer;transition:background .12s,border-color .12s;text-align:left;color:inherit;font:inherit;width:100%}
+  .dir-item:hover{background:rgba(216,168,92,.10);border-color:var(--brass-dim)}
+  .dir-item .di-name{flex:1;font-size:14px;color:var(--ink,#e8dcc4);text-transform:capitalize}
+  .dir-item .di-n{font-size:11px;color:var(--brass-dim);font-variant-numeric:tabular-nums}
+  .dir-empty{padding:24px 8px;text-align:center;color:var(--brass-dim);font-style:italic}
   #diagCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
   #diagCanvas:active{cursor:grabbing}
   #diagHint{padding:6px 12px 0;font-size:11px;color:#6f5a33;letter-spacing:.08em;pointer-events:none}
@@ -341,6 +350,7 @@
   </div>
   <div id="menu">
     <button data-open="searchModal">Find a Book</button>
+    <button data-open="dirModal">Directory</button>
     <button data-open="addressModal">ISBN / ID</button>
     <button id="btnRandom">Random</button>
     <button data-open="about">About</button>
@@ -376,6 +386,7 @@
     <nav>
       <button id="btnEnter">Enter the Library</button>
       <button data-open="searchModal">Find a Book</button>
+      <button data-open="dirModal">Browse the Directory</button>
       <button data-open="addressModal">By ISBN or ID</button>
       <button data-open="about">About the Library</button>
       <button data-open="tuneModal">Tune the Library</button>
@@ -437,6 +448,18 @@
       <button class="btn primary" id="btnGoAddr">Fetch the book</button>
       <button class="btn quiet" data-close>Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- the subject directory: browse every gallery and wing hall -->
+<div id="dirModal" class="veil hidden">
+  <div class="panel">
+    <button class="closex" data-close>×</button>
+    <h2>The Directory</h2>
+    <div class="rule"></div>
+    <p>Every gallery in the library, by name. Filter the list, or step straight into any subject. The wings of research and law keep their own halls below.</p>
+    <input id="dirFilter" class="field" placeholder="filter subjects \u2014 try &quot;myth&quot;, &quot;science&quot;, &quot;law&quot;\u2026" spellcheck="false" autocomplete="off">
+    <div id="dirList"></div>
   </div>
 </div>
 
@@ -964,6 +987,8 @@ const Catalog = (() => {
     probe, remoteEnabled: () => !!REMOTE_BASE,
     annexSearch, annexCase, annexDocket, annexStatute,
     setRealm, realmName, subjectCount, wingActive,
+    subjectsOf: subjectsNow,
+    wingSubjectsOf: (rk) => (wingInfo && wingInfo[rk] && wingInfo[rk].subjects) || [],
   };
 })();
 </script>
@@ -2783,7 +2808,7 @@ const World = (() => {
   Catalog.loadRoom(0, 0);
 
   // ---------- modals ----------
-  const MODALS = ["reader", "addressModal", "searchModal", "about", "iaModal", "textReader", "tuneModal"];
+  const MODALS = ["reader", "addressModal", "dirModal", "searchModal", "about", "iaModal", "textReader", "tuneModal"];
   // ---------- full-texts-only: hide everything that can't be read complete, here ----------
   let FULL_ONLY = false;
   const hiddenByFilter = (b) => FULL_ONLY && b && !b.gutenberg && b.access !== "public";
@@ -3148,10 +3173,138 @@ const World = (() => {
     DIAG = { resize };
   }
 
+  // ---------- the subject directory ----------
+  // The 64 stacks subjects grouped thematically, plus the wings' halls. Clicking
+  // a subject walks you straight into that gallery; the filter narrows the list.
+  const DIR_GROUPS = [
+    ["Stories & Verse", ["fiction", "fantasy", "science fiction", "mystery", "romance",
+      "horror", "adventure", "historical fiction", "short stories", "poetry", "drama",
+      "humor", "classics", "fairy tales", "detective and mystery stories", "westerns",
+      "sea stories", "spy stories", "comics"]],
+    ["For Younger Readers", ["young adult fiction", "juvenile fiction", "children's stories"]],
+    ["Lives & History", ["biography", "autobiography", "history", "ancient history", "world war ii"]],
+    ["Thought & Belief", ["philosophy", "ethics", "psychology", "religion", "mythology", "folklore"]],
+    ["Science & Nature", ["science", "mathematics", "physics", "chemistry", "biology",
+      "astronomy", "geology", "medicine", "natural history", "animals", "birds", "nature"]],
+    ["Living & Place", ["gardening", "cooking", "health", "travel", "geography", "exploration"]],
+    ["Art & Culture", ["art", "painting", "photography", "architecture", "music", "theater"]],
+    ["Mind & Society", ["education", "language", "law", "politics", "economics", "business", "engineering"]],
+  ];
+
+  let dirBuilt = false;
+  function initDirectory() {
+    if (!dirBuilt) {
+      buildDirectory();
+      dirBuilt = true;
+      const filt = $("dirFilter");
+      if (filt) filt.addEventListener("input", () => filterDirectory(filt.value));
+    }
+    // refresh wing availability each open (wings may have come online)
+    buildDirectory();
+    const filt = $("dirFilter");
+    if (filt && filt.value) filterDirectory(filt.value);
+  }
+
+  function dirJump(target) {
+    // target: { realm, subject } — switch realm if needed, find the subject index, walk in
+    closeModals();
+    if (!entered) enterLibrary();
+    const wantRealm = target.realm || "stacks";
+    if (wantRealm !== realm) {
+      if (wantRealm !== "stacks" && !Catalog.wingActive(wantRealm)) {
+        toast(REALM_LABEL[wantRealm] + " is still under construction");
+        return;
+      }
+      realmPos[realm] = { si, depth };
+      realm = wantRealm; Catalog.setRealm(wantRealm);
+      depth = 0;
+      syncPortals();
+    }
+    const subs = Catalog.subjectsOf ? Catalog.subjectsOf() : null;
+    let idx = -1;
+    if (subs && subs.length) {
+      idx = subs.indexOf(target.subject);
+    }
+    if (idx < 0) idx = 0;
+    si = idx;
+    afterRoomChange();
+    World.placeAtCenter(60);
+    toast("You step into \u201C" + Catalog.pretty(target.subject) + "\u201D");
+  }
+
+  function dirItem(name, realmName) {
+    const b = document.createElement("button");
+    b.className = "dir-item";
+    b.dataset.name = name.toLowerCase();
+    b.innerHTML = '<span class="di-name"></span><span class="di-n">enter \u2192</span>';
+    b.querySelector(".di-name").textContent = Catalog.pretty(name);
+    b.addEventListener("click", () => dirJump({ realm: realmName, subject: name }));
+    return b;
+  }
+
+  function buildDirectory() {
+    const list = $("dirList");
+    if (!list) return;
+    list.innerHTML = "";
+    // the main stacks, grouped thematically
+    DIR_GROUPS.forEach(([title, subs]) => {
+      const h = document.createElement("div");
+      h.className = "dir-group"; h.textContent = title;
+      list.appendChild(h);
+      const grid = document.createElement("div");
+      grid.className = "dir-grid";
+      subs.forEach((s) => grid.appendChild(dirItem(s, "stacks")));
+      list.appendChild(grid);
+    });
+    // the wings, if their indexes are built
+    [["research", "The Research Wing"], ["law", "The Law Library"]].forEach(([rk, label]) => {
+      if (!Catalog.wingActive(rk)) return;
+      const subs = (Catalog.wingSubjectsOf && Catalog.wingSubjectsOf(rk)) || [];
+      if (!subs.length) return;
+      const h = document.createElement("div");
+      h.className = "dir-group"; h.textContent = label;
+      list.appendChild(h);
+      const grid = document.createElement("div");
+      grid.className = "dir-grid";
+      subs.forEach((s) => grid.appendChild(dirItem(s, rk)));
+      list.appendChild(grid);
+    });
+  }
+
+  function filterDirectory(q) {
+    const term = (q || "").trim().toLowerCase();
+    const list = $("dirList");
+    if (!list) return;
+    let anyVisible = false;
+    list.querySelectorAll(".dir-grid").forEach((grid) => {
+      let groupHas = false;
+      grid.querySelectorAll(".dir-item").forEach((it) => {
+        const match = !term || it.dataset.name.indexOf(term) !== -1;
+        it.style.display = match ? "" : "none";
+        if (match) { groupHas = true; anyVisible = true; }
+      });
+      // hide the group header too if nothing in it matches
+      const header = grid.previousElementSibling;
+      if (header && header.classList.contains("dir-group")) header.style.display = groupHas ? "" : "none";
+      grid.style.display = groupHas ? "" : "none";
+    });
+    let empty = list.querySelector(".dir-empty");
+    if (!anyVisible) {
+      if (!empty) {
+        empty = document.createElement("div");
+        empty.className = "dir-empty";
+        empty.textContent = "No gallery by that name \u2014 try a broader word.";
+        list.appendChild(empty);
+      }
+      empty.style.display = "";
+    } else if (empty) empty.style.display = "none";
+  }
+
   function openModal(id) {
     MODALS.forEach((m) => $(m).classList.toggle("hidden", m !== id));
     World.setPaused(true);
     if (id === "about") initDiagram();
+    if (id === "dirModal") initDirectory();
   }
   function closeModals() {
     MODALS.forEach((m) => $(m).classList.add("hidden"));
