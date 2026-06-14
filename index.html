@@ -259,9 +259,10 @@
   #diagViews{position:absolute;right:10px;top:10px;display:flex;gap:6px}
   #diagViews button{font-size:11px;padding:4px 10px;background:rgba(40,30,18,.82);color:var(--amber);border:1px solid var(--line-soft);border-radius:6px;cursor:pointer;letter-spacing:.05em;font-family:inherit}
   #diagViews button:hover{background:rgba(60,46,26,.95)}
+  #diagViews button.on{background:var(--amber);color:#231803;border-color:var(--amber)}
   #diagCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
   #diagCanvas:active{cursor:grabbing}
-  #diagHint{position:absolute;left:10px;bottom:8px;font-size:11px;color:#6f5a33;letter-spacing:.08em;pointer-events:none}
+  #diagHint{padding:6px 12px 0;font-size:11px;color:#6f5a33;letter-spacing:.08em;pointer-events:none}
   #diagLabel{padding:7px 12px;font-size:13px;color:var(--amber);border-top:1px solid var(--line-soft);min-height:18px;letter-spacing:.04em}
 
   .tips{margin-top:12px;color:#8a7350;font-size:12.5px;line-height:1.7}
@@ -505,7 +506,7 @@
         <div id="diagViews">
           <button type="button" id="diagTop">top</button>
           <button type="button" id="diagFront">front</button>
-          <button type="button" id="diagStairs">stairs</button>
+          <button type="button" id="diagStairs">x-ray</button>
         </div>
       </div>
       <div id="diagHint">drag to turn &amp; tilt &middot; scroll to zoom &middot; hover to name</div>
@@ -2934,7 +2935,6 @@ const World = (() => {
     const N = 16, RING_R = PITCH / (2 * Math.sin(Math.PI / N));
     const SEG = 2 * Math.PI / N, CHORD = 2 * RING_R * Math.sin(SEG / 2);
     const FLOORS = LOW ? 8 : 15;
-    const XRAY_LIVE = !LOW; // desktop fades rooms per-frame; mobile stays static
 
     const WOOD = 0x6b4f30, WOOD_D = 0x4f3a22, FLOORC = 0x3c2c1a, BRASS = 0xc8a35a,
       STONE = 0x6f6356, BRASS_HI = 0xe8be6a;
@@ -3033,7 +3033,7 @@ const World = (() => {
     seam.rotation.x = Math.PI / 2; seam.position.y = 0.05; root.add(seam);
 
     let yaw = 0.4, pitch = 0.55, dragging = false, lx = 0, ly = 0, autoSpin = true,
-      zoom = LOW ? 1.15 : 1, tgtPitch = null, xray = 0, tgtXray = 0, dYawV = 0, dPitchV = 0;
+      zoom = LOW ? 1.15 : 1, tgtPitch = null, xray = 0, tgtXray = 0, dYawV = 0, dPitchV = 0, lastFade = -1;
     const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
     function setLabel(t) { $("diagLabel").textContent = t || "\u00a0"; }
     function onHover(cx, cy) {
@@ -3077,9 +3077,12 @@ const World = (() => {
     }, { passive: false });
     canvas.addEventListener("touchend", () => { pinchD = 0; });
     const btnTop = $("diagTop"), btnFront = $("diagFront"), btnStairs = $("diagStairs");
-    if (btnTop) btnTop.onclick = () => { autoSpin = false; tgtPitch = 1.50; tgtXray = 0; };
-    if (btnFront) btnFront.onclick = () => { autoSpin = false; tgtPitch = 0.06; tgtXray = 0; };
-    if (btnStairs) btnStairs.onclick = () => { autoSpin = false; tgtPitch = 0.10; tgtXray = (tgtXray > 0.5 ? 0 : 1); };
+    if (btnTop) btnTop.onclick = () => { autoSpin = false; tgtPitch = 1.50; };
+    if (btnFront) btnFront.onclick = () => { autoSpin = false; tgtPitch = 0.06; };
+    if (btnStairs) btnStairs.onclick = () => {
+      tgtXray = (tgtXray > 0.5 ? 0 : 1);
+      btnStairs.classList.toggle("on", tgtXray > 0.5);
+    };
 
     function resize() {
       const w = holder.clientWidth, h = holder.clientHeight;
@@ -3099,15 +3102,13 @@ const World = (() => {
       }
       if (tgtPitch != null) { pitch += (tgtPitch - pitch) * 0.12; if (Math.abs(tgtPitch - pitch) < 0.01) { pitch = tgtPitch; tgtPitch = null; } }
       xray += (tgtXray - xray) * 0.1;
-      if (XRAY_LIVE) {
-        const frontal = Math.max(0, 1 - pitch / 0.5);
-        const fade = Math.max(xray, frontal * 0.82);
-        for (let k = 0; k < roomMats.length; k++) { const m = roomMats[k]; m.opacity = m.userData.base * (1 - fade * 0.80); }
-        for (let k2 = 0; k2 < stairMats.length; k2++) { const sm2 = stairMats[k2]; sm2.opacity = Math.min(1, sm2.userData.base + fade * 0.2); }
-      } else if (Math.abs(tgtXray - xray) > 0.001 || xray > 0.001) {
-        // mobile: only recompute opacity when the stairs toggle is animating
+      // x-ray is an explicit toggle now (not auto-on-frontal), so you can study
+      // the solid structure from any angle, including straight on.
+      if (Math.abs(tgtXray - xray) > 0.001 || lastFade !== xray) {
         const fade = xray;
-        for (let k = 0; k < roomMats.length; k++) { const m = roomMats[k]; m.opacity = m.userData.base * (1 - fade * 0.80); }
+        for (let k = 0; k < roomMats.length; k++) { const m = roomMats[k]; m.opacity = m.userData.base * (1 - fade * 0.82); }
+        for (let k2 = 0; k2 < stairMats.length; k2++) { const sm2 = stairMats[k2]; sm2.opacity = Math.min(1, sm2.userData.base + fade * 0.2); }
+        lastFade = xray;
       }
       if (autoSpin) yaw += 0.0013;
       root.rotation.y = yaw;
