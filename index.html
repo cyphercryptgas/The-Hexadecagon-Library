@@ -3008,12 +3008,12 @@ const World = (() => {
       const vf = new THREE.Mesh(GEO.vfloor, rm(0x3a2a18, 0.9)); vf.position.set(0, 0, DOOR_Z + 0.3); g.add(vf);
       const bw = new THREE.Mesh(GEO.vwall, rm(WOOD_D, 0.82)); bw.position.set(0, 0.75, DOOR_Z + 1.55); g.add(bw);
       const s2 = new THREE.Group(); s2.position.set(0, 0, 0.60);
-      const pole = new THREE.Mesh(GEO.pole, sm(BRASS_HI, 0.35, BRASS_HI, 0.7)); pole.position.y = LEVEL_H / 2; s2.add(pole);
+      const pole = new THREE.Mesh(GEO.pole, sm(BRASS_HI, 0.3, BRASS_HI, 1.15)); pole.position.y = LEVEL_H / 2; s2.add(pole);
       for (let s = 0; s < STEPS_PER_TURN; s++) {
         const a = (s / STEPS_PER_TURN) * Math.PI * 2, yy = 0.12 + (s / STEPS_PER_TURN) * LEVEL_H;
-        const t = new THREE.Mesh(GEO.tread, sm(0x9a7340, 0.5)); t.position.set(Math.cos(a) * STAIR_R * 0.55, yy, Math.sin(a) * STAIR_R * 0.55); t.rotation.y = -a; s2.add(t);
+        const t = new THREE.Mesh(GEO.tread, sm(0xc79a52, 0.45, 0xc79a52, 0.7)); t.position.set(Math.cos(a) * STAIR_R * 0.55, yy, Math.sin(a) * STAIR_R * 0.55); t.rotation.y = -a; s2.add(t);
         if (!LOW || s % 2 === 0) {
-          const bb = new THREE.Mesh(GEO.bal, sm(BRASS_HI, 0.4, BRASS_HI, 0.6)); bb.position.set(Math.cos(a) * STAIR_R, yy + 0.18, Math.sin(a) * STAIR_R); s2.add(bb);
+          const bb = new THREE.Mesh(GEO.bal, sm(BRASS_HI, 0.35, BRASS_HI, 1.15)); bb.position.set(Math.cos(a) * STAIR_R, yy + 0.18, Math.sin(a) * STAIR_R); s2.add(bb);
         }
       }
       g.add(s2);
