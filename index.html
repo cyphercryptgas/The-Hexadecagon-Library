@@ -656,7 +656,14 @@ const Catalog = (() => {
     const t = setTimeout(() => ctl.abort(), timeoutMs || 8000);
     try {
       const r = await fetch(REMOTE_BASE + pathq, { signal: ctl.signal });
-      if (!r.ok) throw new Error("catalog index replied " + r.status);
+      if (!r.ok) {
+        let detail = "";
+        try {
+          const j = await r.json();
+          detail = j && j.error ? " (" + j.error + ")" : "";
+        } catch (e) { /* body not json */ }
+        throw new Error("catalog index replied " + r.status + detail);
+      }
       return await r.json();
     } finally {
       clearTimeout(t);
@@ -3250,21 +3257,14 @@ const World = (() => {
             links.appendChild(a);
           }
         } else if (isStatute) {
-          if (b.pdf || b.url) {
+          if (b.url || b.pdf) {
             const t = document.createElement("a");
             t.className = "pbtn";
             t.textContent = "Read the law \u2014 govinfo \u2197";
-            t.href = b.pdf || b.url; t.target = "_blank"; t.rel = "noopener";
+            // the details page (url) reliably resolves; the content htm can 404
+            t.href = b.url || b.pdf; t.target = "_blank"; t.rel = "noopener";
             t.style.textDecoration = "none";
             links.appendChild(t);
-          }
-          if (b.url && b.pdf && b.url !== b.pdf) {
-            const a = document.createElement("a");
-            a.className = "pbtn";
-            a.textContent = "Title page \u2197";
-            a.href = b.url; a.target = "_blank"; a.rel = "noopener";
-            a.style.textDecoration = "none";
-            links.appendChild(a);
           }
         } else { // a court opinion: open in the typeset reader
           if (b.extid) {
@@ -3906,7 +3906,7 @@ const World = (() => {
         row.addEventListener("click", () => {
           if (kind === "papers") return openPaper(d); // paper or book: both open the PDF in a tab
           if (dk === "statute") {
-            const u = d.pdf || d.url;
+            const u = d.url || d.pdf;
             if (u) { window.open(u, "_blank", "noopener"); toast("Opening the law at govinfo\u2026"); }
             return;
           }
