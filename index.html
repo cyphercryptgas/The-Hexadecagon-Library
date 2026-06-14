@@ -479,6 +479,7 @@
     <div class="tune-row"><label for="tnFov">Field of view</label><input type="range" id="tnFov" min="60" max="92" value="72"><span id="tnFovV">72°</span></div>
     <div class="tune-row"><label for="tnSpeed">Walking pace</label><input type="range" id="tnSpeed" min="70" max="170" value="100"><span id="tnSpeedV">1.0×</span></div>
     <div class="tune-row"><label for="tnDust">Dust motes</label><input type="checkbox" id="tnDust" checked><span></span></div>
+    <div class="tune-row"><label for="tnBob">Head-bob while walking</label><input type="checkbox" id="tnBob"><span></span></div>
     <div class="tune-row"><label for="tnFull">Full texts only</label><input type="checkbox" id="tnFull"><span></span></div>
     <p class="tune-note" style="margin-top:2px">Full texts only hides every book that can’t be read complete, right here — the shelves thin out, but every spine opens.</p>
     <p class="tune-note">Saved in this browser.</p>
@@ -995,9 +996,12 @@ const World = (() => {
   let dust, dustBase;
   let hoveredId = -1, pulse = null;
   // spawn inside the walkable ring (the room's center is the open shaft)
-  const player = { x: -1.85, z: 0, yaw: -Math.PI / 2, pitch: 0 };
+  const player = { x: -1.85, z: 0, yaw: -Math.PI / 2, pitch: 0,
+    vx: 0, vz: 0,            // momentum: current velocity (units/sec)
+    dYaw: 0, dPitch: 0,      // look smoothing: pending rotation to ease out
+    bob: 0, bobPhase: 0 };   // head-bob accumulator
   // walkable spiral stair: the player rides a smooth helix; depth swaps under their feet
-  const stair = { on: false, thetaU: 0, h: 0 };
+  const stair = { on: false, thetaU: 0, h: 0, rEase: 0.70 }; // rEase reset on boarding
   const SCX = APO + VEST / 2;            // stair-pole |x| — sits exactly on the treadmill seam
   const R_IN = 0.18, R_OUT = 0.78, R_WALK = 0.70, ENTRY_H = 0.55, R_BOARD = STAIR_R + 0.45;
   function stairLocal(x, z) {
@@ -1007,6 +1011,7 @@ const World = (() => {
   }
   let keys = {}, paused = false, entered = false;
   let lookSens = 1, speedMul = 1, fovWanted = 72, dustWanted = true; // user tuning
+  let headBob = false; // toggleable in settings
   let lightBase = 0.92, flickAmt = 0.08, themeWanted = "classic";
   let ambLight = null, hemiLight = null; const glowSprites = [], flames = [];
   let curThemeKey = "classic";
@@ -2052,13 +2057,15 @@ const World = (() => {
   function walkable(x, z) {
     const ax = Math.abs(x);
     const h = hexA(x, z);
-    const inHex = h <= APO - 0.30 && h >= RAIL * 0.8660254 + 0.12;
-    const doorOK = Math.abs(z - DOOR_Z) <= DOOR_W / 2 - 0.14;
+    // tighter buffer to the shelves (0.30 -> 0.20) and a hair closer to the rail,
+    // so you can walk right up to the books instead of stopping a foot short
+    const inHex = h <= APO - 0.20 && h >= RAIL * 0.8660254 + 0.08;
+    const doorOK = Math.abs(z - DOOR_Z) <= DOOR_W / 2 - 0.08; // wider doorway
     const inDoor = doorOK && ax >= APO - 0.55 && ax <= APO + 0.45;
     const cx = APO + VEST / 2;
     const inCorr = ax >= APO + 0.05 && ax <= PITCH / 2 + 0.8 &&
-      z >= -VHW + 0.22 && z <= VHW - 0.24 &&
-      Math.hypot(ax - cx, z - STAIR_Z) >= STAIR_R + 0.16;
+      z >= -VHW + 0.18 && z <= VHW - 0.20 &&
+      Math.hypot(ax - cx, z - STAIR_Z) >= STAIR_R + 0.12;
     return inHex || inDoor || inCorr;
   }
 
@@ -2112,6 +2119,13 @@ const World = (() => {
       camera.position.set(0.5 * COS(t * 0.05), EYE, 0.5 * SIN(t * 0.05));
     }
     if (entered && !paused) step(dt);
+    // look smoothing: consume a fraction of the pending rotation each frame so
+    // mouse/touch jitter becomes fluid motion (frame-rate independent).
+    const lookEase = Math.min(1, 22 * dt);
+    const ay = player.dYaw * lookEase, ap = player.dPitch * lookEase;
+    player.yaw += ay; player.dYaw -= ay;
+    player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch + ap));
+    player.dPitch -= ap;
     camera.rotation.set(player.pitch, player.yaw, 0);
     if (!reduceMotion) {
       const f = 0.9 + flickAmt * Math.sin(t * 6.3 + flickerPhase) * Math.sin(t * 1.7 + flickerPhase * 2.1) +
@@ -2149,83 +2163,124 @@ const World = (() => {
     renderer.render(scene, camera);
   }
 
+  // smooth wall-sliding: try the full move; if blocked, slide along whichever
+  // axis is free, scaled so diagonal grazes don't lurch.
+  function tryMove(nx, nz) {
+    if (walkable(nx, nz)) { player.x = nx; player.z = nz; return; }
+    const dx = nx - player.x, dz = nz - player.z;
+    // slide on X (keep moving along the wall), then on Z
+    if (walkable(player.x + dx, player.z)) { player.x += dx; return; }
+    if (walkable(player.x, player.z + dz)) { player.z += dz; return; }
+    // corner: try reduced steps so we hug rather than stick
+    if (walkable(player.x + dx * 0.5, player.z)) { player.x += dx * 0.5; return; }
+    if (walkable(player.x, player.z + dz * 0.5)) { player.z += dz * 0.5; return; }
+  }
+
   function step(dt) {
-    const speed = (keys["shift"] ? 3.4 : 2.25) * speedMul * dt;
+    // ---- input -> desired direction ----
+    const targetSpeed = (keys["shift"] ? 3.6 : 2.4) * speedMul;
     const fwd = new THREE.Vector3();
-    camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
-    const right = new THREE.Vector3(fwd.z, 0, -fwd.x); // points to the player's left; signs handled below
-    let mx = 0, mz = 0;
-    if (keys["w"] || keys["arrowup"]) { mx += fwd.x; mz += fwd.z; }
-    if (keys["s"] || keys["arrowdown"]) { mx -= fwd.x; mz -= fwd.z; }
-    if (keys["a"] || keys["arrowleft"]) { mx += right.x; mz += right.z; }
-    if (keys["d"] || keys["arrowright"]) { mx -= right.x; mz -= right.z; }
-    if (joy.active) { mx += fwd.x * joy.y - right.x * joy.x; mz += fwd.z * joy.y - right.z * joy.x; }
-    const len = Math.hypot(mx, mz);
-    if (len > 0.001) {
-      mx = mx / len * speed; mz = mz / len * speed;
-      const nx = player.x + mx, nz = player.z + mz;
+    camera.getWorldDirection(fwd); fwd.y = 0;
+    const fl = Math.hypot(fwd.x, fwd.z) || 1; fwd.x /= fl; fwd.z /= fl;
+    const right = new THREE.Vector3(fwd.z, 0, -fwd.x);
+    let dx = 0, dz = 0;
+    if (keys["w"] || keys["arrowup"]) { dx += fwd.x; dz += fwd.z; }
+    if (keys["s"] || keys["arrowdown"]) { dx -= fwd.x; dz -= fwd.z; }
+    if (keys["a"] || keys["arrowleft"]) { dx += right.x; dz += right.z; }
+    if (keys["d"] || keys["arrowright"]) { dx -= right.x; dz -= right.z; }
+    if (joy.active) { dx += fwd.x * joy.y - right.x * joy.x; dz += fwd.z * joy.y - right.z * joy.x; }
+    const dl = Math.hypot(dx, dz);
+
+    // ---- momentum: ease velocity toward target (snappy, not icy) ----
+    let tvx = 0, tvz = 0;
+    if (dl > 0.001) {
+      const mag = Math.min(dl, 1); // joystick gives partial magnitude
+      tvx = (dx / dl) * targetSpeed * mag;
+      tvz = (dz / dl) * targetSpeed * mag;
+    }
+    // accelerate quickly, decelerate a touch quicker -> responsive but not robotic
+    const accel = (tvx || tvz) ? 14 : 18;
+    const k = Math.min(1, accel * dt);
+    player.vx += (tvx - player.vx) * k;
+    player.vz += (tvz - player.vz) * k;
+    const vlen = Math.hypot(player.vx, player.vz);
+    if (vlen < 0.012) { player.vx = 0; player.vz = 0; }
+
+    const mvx = player.vx * dt, mvz = player.vz * dt;
+    const moving = vlen > 0.05;
+
+    if (vlen > 0.001) {
+      const nx = player.x + mvx, nz = player.z + mvz;
       if (!stair.on) {
         // boarding the helix: only through the low windings near the entry step
         const L = stairLocal(nx, nz);
         const hEntry = (L.th / (2 * Math.PI)) * LEVEL_H;
         if (L.r < R_BOARD && Math.abs(nx) > APO + 0.05 && Math.abs(hEntry) <= ENTRY_H) {
           const rr = Math.min(R_WALK, Math.max(R_IN, L.r || 1e-6));
-          stair.on = true; stair.thetaU = L.th; stair.h = hEntry;
+          stair.on = true; stair.thetaU = L.th; stair.h = hEntry; stair.rEase = rr;
           player.x = L.sx * SCX + (L.u / (L.r || 1e-6)) * rr;
           player.z = STAIR_Z + (L.v / (L.r || 1e-6)) * rr;
-        } else if (walkable(nx, nz)) { player.x = nx; player.z = nz; }
-        else if (walkable(nx, player.z)) player.x = nx;
-        else if (walkable(player.x, nz)) player.z = nz;
+        } else {
+          tryMove(nx, nz);
+        }
       } else {
-        // riding the helix
+        // ---- riding the helix: guide, don't railroad ----
         const raw = stairLocal(nx, nz);
-        if (Math.abs(stair.h) < ENTRY_H && raw.r > R_WALK + 0.02) {
-          // pushing outward at a landing: hop off onto the floor if there is one
-          const ex = raw.sx * SCX + (raw.u / (raw.r || 1e-6)) * (STAIR_R + 0.20);
-          const ez = STAIR_Z + (raw.v / (raw.r || 1e-6)) * (STAIR_R + 0.20);
+        // hop off at a landing if pushing outward onto a real floor
+        if (Math.abs(stair.h) < ENTRY_H && raw.r > R_WALK + 0.06) {
+          const ex = raw.sx * SCX + (raw.u / (raw.r || 1e-6)) * (STAIR_R + 0.22);
+          const ez = STAIR_Z + (raw.v / (raw.r || 1e-6)) * (STAIR_R + 0.22);
           if (walkable(ex, ez)) {
             stair.on = false; stair.h = 0;
             player.x = ex; player.z = ez;
           }
         }
         if (stair.on) {
-          let px = nx, pz = nz, L = raw;
-          if (L.r < R_IN || L.r > R_WALK) { // central pole inside, phantom railing outside
-            const rr = Math.min(R_WALK, Math.max(R_IN, L.r || 1e-6));
-            px = L.sx * SCX + (L.u / (L.r || 1e-6)) * rr;
-            pz = STAIR_Z + (L.v / (L.r || 1e-6)) * rr;
-            L = stairLocal(px, pz);
-          }
+          // Let the player's intended radius ease toward the comfortable band
+          // instead of hard-snapping every frame. This removes the "rail" feel.
+          const wantR = Math.min(R_WALK, Math.max(R_IN, raw.r || 1e-6));
+          stair.rEase += (wantR - stair.rEase) * Math.min(1, 10 * dt);
+          const rr = stair.rEase;
+          // follow the angle the player actually walked to (smooth ascent)
           const cur = Math.atan2(SIN(stair.thetaU), COS(stair.thetaU));
-          let dth = L.th - cur;
+          let dth = raw.th - cur;
           if (dth > Math.PI) dth -= 2 * Math.PI; else if (dth <= -Math.PI) dth += 2 * Math.PI;
+          // ease theta toward the target rather than jumping straight to it
           let nT = stair.thetaU + dth;
           let nH = (nT / (2 * Math.PI)) * LEVEL_H;
           if (nH > 0.45 && cb.canRise && !cb.canRise()) {
-            // ground floor — the stair simply ends a few steps up
             if (stair.h < 0.44 && cb.atTop) cb.atTop();
             nT = (0.45 / LEVEL_H) * 2 * Math.PI; nH = 0.45;
-            const rr = Math.min(R_WALK, Math.max(R_IN, L.r));
-            px = L.sx * SCX + rr * COS(nT); pz = STAIR_Z + rr * SIN(nT);
           }
           stair.thetaU = nT; stair.h = nH;
-          player.x = px; player.z = pz;
-          if (stair.h > LEVEL_H / 2) { // crested a landing: one floor shallower
+          player.x = raw.sx * SCX + COS(nT) * rr;
+          player.z = STAIR_Z + SIN(nT) * rr;
+          if (stair.h > LEVEL_H / 2) {
             stair.thetaU -= 2 * Math.PI; stair.h -= LEVEL_H;
             if (cb.levelShift) cb.levelShift(-1);
-          } else if (stair.h < -LEVEL_H / 2) { // sank below: one floor deeper
+          } else if (stair.h < -LEVEL_H / 2) {
             stair.thetaU += 2 * Math.PI; stair.h += LEVEL_H;
             if (cb.levelShift) cb.levelShift(1);
           }
         }
       }
     }
-    if (!stair.on) { // the seam is suspended while circling the pole that sits on it
+    if (!stair.on) { // seam wrap between rooms
       if (player.x > PITCH / 2) { player.x -= PITCH; if (cb.roomShift) cb.roomShift(1); }
       else if (player.x < -PITCH / 2) { player.x += PITCH; if (cb.roomShift) cb.roomShift(-1); }
     }
     checkPortals(performance.now());
-    camera.position.set(player.x, EYE + stair.h, player.z);
+
+    // ---- head-bob (toggleable, very subtle) ----
+    let bobY = 0;
+    if (headBob && moving && !stair.on) {
+      player.bobPhase += dt * vlen * 3.4;
+      bobY = Math.sin(player.bobPhase) * 0.018; // ~1.8cm
+    } else {
+      player.bobPhase = 0;
+    }
+
+    camera.position.set(player.x, EYE + stair.h + bobY, player.z);
     const near = !stair.on && Math.abs(player.x) > APO - 0.4 &&
       Math.hypot(Math.abs(player.x) - SCX, player.z - STAIR_Z) < 1.4;
     if (cb.nearStair) cb.nearStair(near);
@@ -2276,7 +2331,7 @@ const World = (() => {
     document.addEventListener("pointerlockchange", () => { plocked = document.pointerLockElement === canvas; });
     canvas.addEventListener("pointerdown", (e) => {
       if (!entered || paused) return;
-      if (e.pointerType === "touch" && e.clientX < window.innerWidth * 0.45 && e.clientY > window.innerHeight * 0.35) {
+      if (e.pointerType === "touch" && e.clientX < window.innerWidth * 0.5 && e.clientY > window.innerHeight * 0.30) {
         joy.active = true; joy.id = e.pointerId; joy.ox = e.clientX; joy.oy = e.clientY; joy.x = joy.y = 0;
         const el = document.getElementById("joy");
         el.style.display = "block";
@@ -2289,25 +2344,31 @@ const World = (() => {
     window.addEventListener("pointermove", (e) => {
       if (!entered || paused) return;
       if (plocked) {
-        player.yaw -= e.movementX * 0.0023 * lookSens;
-        player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - e.movementY * 0.0023 * lookSens));
+        player.dYaw -= e.movementX * 0.0022 * lookSens;
+        player.dPitch -= e.movementY * 0.0022 * lookSens;
         moved += Math.abs(e.movementX) + Math.abs(e.movementY);
         return;
       }
       if (joy.active && e.pointerId === joy.id) {
         const dx = e.clientX - joy.ox, dy = e.clientY - joy.oy, m = Math.hypot(dx, dy) || 1;
-        const c = Math.min(m, 46) / 46;
-        joy.x = dx / m * c; joy.y = -dy / m * c;
+        const R = 52, DEAD = 8;
+        // deadzone then smooth ramp: tiny moves register as zero, then ease in
+        let mag = 0;
+        if (m > DEAD) {
+          const t2 = Math.min(1, (m - DEAD) / (R - DEAD));
+          mag = t2 * t2 * (3 - 2 * t2); // smoothstep for a gentle ramp
+        }
+        joy.x = (dx / m) * mag; joy.y = -(dy / m) * mag;
         const k = document.querySelector("#joy i");
-        k.style.left = (33 + dx / m * Math.min(m, 40)) + "px";
-        k.style.top = (33 + dy / m * Math.min(m, 40)) + "px";
+        k.style.left = (33 + (dx / m) * Math.min(m, 40)) + "px";
+        k.style.top = (33 + (dy / m) * Math.min(m, 40)) + "px";
         return;
       }
       if (e.pointerId === lookId) {
         const dx = e.clientX - lastX, dy = e.clientY - lastY;
         lastX = e.clientX; lastY = e.clientY; moved += Math.abs(dx) + Math.abs(dy);
-        player.yaw -= dx * 0.0036;
-        player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - dy * 0.0036));
+        player.dYaw -= dx * 0.0030 * lookSens;
+        player.dPitch -= dy * 0.0030 * lookSens;
       }
     });
     window.addEventListener("pointerup", (e) => {
@@ -2344,6 +2405,7 @@ const World = (() => {
     tune(o) {
       if (o.sens) lookSens = o.sens;
       if (o.speed) speedMul = o.speed;
+      if (typeof o.headBob === "boolean") headBob = o.headBob;
       if (o.fov) { fovWanted = o.fov; if (camera) { camera.fov = o.fov; camera.updateProjectionMatrix(); } }
       if (o.dust !== undefined) { dustWanted = !!o.dust; if (dust) dust.visible = dustWanted; }
       if (o.theme) { themeWanted = THEMES[o.theme] ? o.theme : "classic"; if (scene) applyTheme(themeWanted); }
@@ -2721,7 +2783,7 @@ const World = (() => {
   function applyTune(t) {
     const theme = THEME_UI[t.theme] ? t.theme : "classic";
     World.tune({ sens: t.sens || 1, speed: t.speed || 1, fov: t.fov || 72,
-      dust: t.dust !== false, theme });
+      dust: t.dust !== false, headBob: t.headBob === true, theme });
     const ui = THEME_UI[theme], rs = document.documentElement.style;
     rs.setProperty("--brass", ui[0]); rs.setProperty("--amber", ui[1]); rs.setProperty("--brass-dim", ui[2]);
     $("tnTheme").value = theme;
@@ -2730,6 +2792,7 @@ const World = (() => {
     $("tnSpeed").value = String(Math.round((t.speed || 1) * 100));
     $("tnDust").checked = t.dust !== false;
     $("tnFull").checked = t.full === true;
+    if ($("tnBob")) $("tnBob").checked = t.headBob === true;
     const wasFull = FULL_ONLY;
     FULL_ONLY = t.full === true;
     if (wasFull !== FULL_ONLY && typeof curRoom === "function" && curRoom()) afterRoomChange();
@@ -2745,12 +2808,13 @@ const World = (() => {
       speed: Number($("tnSpeed").value) / 100,
       dust: $("tnDust").checked,
       full: $("tnFull").checked,
+      headBob: $("tnBob") ? $("tnBob").checked : false,
     };
     try { localStorage.setItem(TUNE_KEY, JSON.stringify(t)); } catch (e) {}
     applyTune(t);
   }
-  ["tnTheme", "tnSens", "tnFov", "tnSpeed", "tnDust", "tnFull"].forEach((id) =>
-    $(id).addEventListener("input", tuneChanged));
+  ["tnTheme", "tnSens", "tnFov", "tnSpeed", "tnDust", "tnFull", "tnBob"].forEach((id) =>
+    $(id) && $(id).addEventListener("input", tuneChanged));
   try { applyTune(JSON.parse(localStorage.getItem(TUNE_KEY) || "{}")); }
   catch (e) { applyTune({}); }
 
