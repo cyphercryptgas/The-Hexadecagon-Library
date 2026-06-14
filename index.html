@@ -250,6 +250,16 @@
     font-size:11.5px;margin:20px 0 8px}
   #about .panel{max-height:calc(100vh - 60px);overflow-y:auto}
   #about a{color:var(--amber);text-decoration:none;border-bottom:1px solid var(--line)}
+  #about .srclist{margin:6px 0 6px 2px;padding:0;list-style:none}
+  #about .srclist li{padding:5px 0;border-bottom:1px solid var(--line-soft);font-size:13.5px}
+  #about .srclist code{color:var(--amber);font-size:12px;background:rgba(200,163,90,.08);padding:1px 5px;border-radius:3px}
+  #about .dim{color:#7a6336;font-style:italic}
+  #diagWrap{margin:10px 0 6px;border:1px solid var(--line-soft);background:rgba(7,5,3,.5);border-radius:4px;overflow:hidden}
+  #diagCanvasHolder{position:relative;width:100%;height:300px}
+  #diagCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+  #diagCanvas:active{cursor:grabbing}
+  #diagHint{position:absolute;left:10px;bottom:8px;font-size:11px;color:#6f5a33;letter-spacing:.08em;pointer-events:none}
+  #diagLabel{padding:7px 12px;font-size:13px;color:var(--amber);border-top:1px solid var(--line-soft);min-height:18px;letter-spacing:.04em}
 
   .tips{margin-top:12px;color:#8a7350;font-size:12.5px;line-height:1.7}
   .tip{color:var(--amber);cursor:pointer;border-bottom:1px dashed var(--line)}
@@ -351,9 +361,9 @@
 <!-- landing -->
 <div id="landing" class="veil">
   <div>
-    <div class="eyebrow">Tens of millions of works · sixty-four subjects in a ring · the famous shelved shallow, the rare shelved deep</div>
+    <div class="eyebrow">Tens of millions of works · sixty-four subjects in a ring · wings of research and law · the famous shelved shallow, the rare shelved deep</div>
     <h1>The Hexadecagon Library</h1>
-    <div class="sub">Every published book, shelved and walkable.</div>
+    <div class="sub">Every published book — and the world's research and law — shelved and walkable.</div>
     <svg class="hexrule" viewBox="0 0 200 22" fill="none" stroke="#c8a35a" stroke-width="1">
       <line x1="0" y1="11" x2="78" y2="11" opacity=".5"/>
       <polygon points="100,2 108,6.5 108,15.5 100,20 92,15.5 92,6.5" opacity=".9"/>
@@ -366,7 +376,7 @@
       <button data-open="about">About the Library</button>
       <button data-open="tuneModal">Tune the Library</button>
     </nav>
-    <div class="epigraph">Catalog, covers and reading courtesy of Open Library &amp; the Internet Archive. Full texts of public-domain works courtesy of Project Gutenberg. The stacks are alive: they grow as the catalog grows.</div>
+    <div class="epigraph">Books, covers and reading from Open Library &amp; the Internet Archive; public-domain texts from Project Gutenberg. The wings draw on OpenAlex, OpenStax and DOAB for research, and CourtListener and govinfo.gov for the law. The stacks are alive: they grow as the catalog grows.</div>
     <div id="bootline">contacting the catalog…</div>
   </div>
 </div>
@@ -434,7 +444,7 @@
     <div class="rule"></div>
     <div id="annexTabs">
       <button class="atab on" data-atab="books">Books</button>
-      <button class="atab" data-atab="papers">Papers</button>
+      <button class="atab" data-atab="papers">Research</button>
       <button class="atab" data-atab="law">Law</button>
     </div>
     <p id="searchIntro">Search the whole catalog — title, author, or both. Anything ever published is fair game.</p>
@@ -483,6 +493,35 @@
     <p>This is a walkable reading room for the world's published books. The shelves are drawn live from the <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> catalog — an open project of the Internet Archive holding records for tens of millions of works, the closest thing that exists to a complete public index of everything in print.</p>
     <h3>How the stacks are arranged</h3>
     <p>Sixty-four subjects form a ring of galleries: walk through a doorway and you pass to the next subject. Each gallery holds 640 volumes — four walls, five shelves, thirty-two books. The spiral stair is walkable: a full turn down carries you one page deeper within every subject at once. Shallow galleries hold the most-published works; the deeper you descend, the rarer the books become — until a subject runs out, and the empty shelves below wait for books not yet written.</p>
+
+    <h3>The structure, from above</h3>
+    <p>The whole library is a ring of sixty-four galleries with floors descending beneath, and wings that branch off into the literature, the law, and the music. Turn it, and look:</p>
+    <div id="diagWrap">
+      <div id="diagCanvasHolder"><canvas id="diagCanvas"></canvas></div>
+      <div id="diagHint">drag to turn &middot; hover a part to name it</div>
+      <div id="diagLabel">&nbsp;</div>
+    </div>
+    <p style="font-size:12.5px;color:#8a7448">The diagram is schematic — the real galleries stream in as you walk, three rooms at a time, so the structure is far larger than any one view holds.</p>
+
+    <h3>What stands on the shelves</h3>
+    <p>The main ring is drawn live from <a href="https://openlibrary.org" target="_blank" rel="noopener">Open Library</a> — records for tens of millions of published books, with covers and scans from the <a href="https://archive.org" target="_blank" rel="noopener">Internet Archive</a>, full public-domain texts from <a href="https://www.gutenberg.org" target="_blank" rel="noopener">Project Gutenberg</a>, and human-read audiobooks from <a href="https://librivox.org" target="_blank" rel="noopener">LibriVox</a>. Beyond the ring, three wings open through doorways:</p>
+    <p><b>The Research Wing</b> — the most-cited scholarship across every field, from <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a>; open college textbooks from <a href="https://openstax.org" target="_blank" rel="noopener">OpenStax</a>; and tens of thousands of peer-reviewed open-access academic books from the <a href="https://directory.doabooks.org" target="_blank" rel="noopener">Directory of Open Access Books</a>. Papers open in full from arXiv.</p>
+    <p><b>The Law Library</b> — federal and state <em>case law</em> (court opinions from the Supreme Court, every federal circuit, and the high courts of fourteen states), the <em>written law</em> itself (the United States Code, the Code of Federal Regulations, and the federal Public Laws as Congress passes them), and federal <em>dockets</em> — the lawsuits themselves, grouped by kind, with their parties and filing history. Opinions and dockets come from <a href="https://www.courtlistener.com" target="_blank" rel="noopener">CourtListener</a> / the RECAP Archive; statutes and regulations from <a href="https://www.govinfo.gov" target="_blank" rel="noopener">govinfo.gov</a> (the U.S. Government Publishing Office).</p>
+    <p><b>The Music Wing</b> — <span class="dim">in progress: public-domain scores and historical recordings.</span></p>
+    <p style="font-size:12.5px;color:#8a7448">Honest about the edges: the library holds <em>codified federal</em> law in depth, a selection of <em>state high-court</em> opinions, and notable federal dockets — but not state statutes, not local or municipal law, and not every document inside every docket (a filing only appears once someone has freed it from PACER). The law itself is public record; "public record" is not the same as "already digitized and free."</p>
+
+    <h3>The sources, and the keys that open them</h3>
+    <p>This explorer is independent and unaffiliated; it stands on open data and open APIs. Where a source asks for a key, the key is the operator's own, requested free from the provider:</p>
+    <ul class="srclist">
+      <li><b>Open Library / Internet Archive</b> — books, covers, scans. No key.</li>
+      <li><b>Project Gutenberg &amp; LibriVox</b> — public-domain texts and audiobooks. No key.</li>
+      <li><b>OpenAlex</b> — scholarly works. A contact email (<code>OPENALEX_MAILTO</code>) for the polite pool.</li>
+      <li><b>DOAB &amp; OpenStax</b> — open-access books and textbooks. No key.</li>
+      <li><b>CourtListener / RECAP</b> (Free Law Project) — opinions and dockets. An API token (<code>CL_TOKEN</code>).</li>
+      <li><b>govinfo.gov</b> (U.S. GPO) — U.S. Code, CFR, Public Laws. An <code>api.data.gov</code> key (<code>GOVINFO_KEY</code>).</li>
+      <li><b>arXiv</b> — research papers, in full. No key.</li>
+    </ul>
+
     <h3>Spines and covers</h3>
     <p>Nobody scans spines — only front covers — so the library binds its own. Each spine takes its color from its book's real cover, carries a vignette of the art at its head, and sets the title down the spine in type. Approach a shelf and the bindings resolve; open a book for the full jacket, the publication facts, and the description.</p>
     <h3>Reading</h3>
@@ -494,7 +533,7 @@
       <button id="installBtn" class="installbtn hidden">Install the Library</button>
       <span id="installNote"></span></p>
     <h3>Lineage</h3>
-    <p>Catalog data, covers, and reading are provided by Open Library and the Internet Archive; this explorer is independent and unaffiliated. It shares its architecture with a companion piece: a true-scale Library of Babel containing every <em>possible</em> book. Between the two libraries lies the difference between everything that could be written and everything that has been.</p>
+    <p>Catalog data, covers, and reading are provided by the sources named above; this explorer is independent and unaffiliated with any of them. It shares its architecture with a companion piece: a true-scale Library of Babel containing every <em>possible</em> book. Between the two libraries lies the difference between everything that could be written and everything that has been — and, in the wings, everything that has been <em>argued, enacted, and discovered</em>.</p>
     <div class="btnrow"><button class="btn" data-close>Return</button></div>
   </div>
 </div>
@@ -889,6 +928,10 @@ const Catalog = (() => {
     if (!REMOTE_BASE || !(await probe())) throw new Error("the catalog node is offline");
     return remoteJSON("/annex/case?id=" + encodeURIComponent(id), 30000);
   }
+  async function annexDocket(id) {
+    if (!REMOTE_BASE || !(await probe())) throw new Error("the catalog node is offline");
+    return remoteJSON("/annex/docket?id=" + encodeURIComponent(id), 30000);
+  }
 
   const coverURL = (id, size) => "https://covers.openlibrary.org/b/id/" + id + "-" + (size || "M") + ".jpg";
 
@@ -897,7 +940,7 @@ const Catalog = (() => {
     subjectOf, pretty, keyOf,
     loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText, findAudio, findGutenberg,
     probe, remoteEnabled: () => !!REMOTE_BASE,
-    annexSearch, annexCase,
+    annexSearch, annexCase, annexDocket,
     setRealm, realmName, subjectCount, wingActive,
   };
 })();
@@ -2761,9 +2804,147 @@ const World = (() => {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 
+  // ---------- the structure diagram (interactive schematic on the About page) ----------
+  // A self-contained Three.js scene: the ring of 64 galleries, the floors
+  // descending beneath, and the three wings branching off. Built once, the
+  // first time About is opened. Drag to turn; hover a part for its name.
+  let DIAG = null;
+  function initDiagram() {
+    if (DIAG) { DIAG.resize(); return; }
+    const canvas = $("diagCanvas");
+    if (!canvas || typeof THREE === "undefined") return;
+    const holder = $("diagCanvasHolder");
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const scene = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
+    const root = new THREE.Group();
+    scene.add(root);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    const key = new THREE.DirectionalLight(0xffe6b0, 0.9);
+    key.position.set(6, 12, 8); scene.add(key);
+
+    const BRASS = 0xc8a35a, AMBER = 0xffb45e, INK = 0x4a3320, FLOORC = 0x2a1d10;
+    const pickables = [];
+    function tag(obj, label) { obj.userData.label = label; pickables.push(obj); return obj; }
+
+    // --- the ring of 64 galleries, as a circle of slim pillars, four floors deep ---
+    const N = 64, R = 6, FLOORS = 4;
+    const ringGroup = new THREE.Group();
+    for (let f = 0; f < FLOORS; f++) {
+      const y = -f * 1.5;
+      const ringMat = new THREE.MeshStandardMaterial({
+        color: f === 0 ? BRASS : INK, roughness: 0.6,
+        emissive: f === 0 ? 0x2a1c08 : 0x000000,
+      });
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        const p = new THREE.Mesh(new THREE.BoxGeometry(0.34, 1.15, 0.34), ringMat);
+        p.position.set(Math.cos(a) * R, y, Math.sin(a) * R);
+        ringGroup.add(p);
+      }
+      const disc = new THREE.Mesh(
+        new THREE.TorusGeometry(R, 0.05, 6, 96),
+        new THREE.MeshBasicMaterial({ color: f === 0 ? BRASS : FLOORC, transparent: true, opacity: f === 0 ? 0.8 : 0.4 }));
+      disc.rotation.x = Math.PI / 2; disc.position.y = y - 0.6;
+      ringGroup.add(disc);
+    }
+    const ringPick = new THREE.Mesh(new THREE.TorusGeometry(R, 0.7, 8, 64),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.001 }));
+    ringPick.rotation.x = Math.PI / 2;
+    tag(ringPick, "The Stacks \u2014 64 galleries of published books (the famous shallow, the rare deep)");
+    ringGroup.add(ringPick);
+    root.add(ringGroup);
+
+    // --- the spiral stair at the centre, descending the floors ---
+    const stairMat = new THREE.MeshStandardMaterial({ color: AMBER, roughness: 0.5, emissive: 0x3a2708 });
+    const stair = new THREE.Group();
+    for (let s = 0; s < 28; s++) {
+      const a = (s / 7) * Math.PI * 2;
+      const step = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 0.28), stairMat);
+      step.position.set(Math.cos(a) * 1.1, -s * (FLOORS * 1.5 / 28), Math.sin(a) * 1.1);
+      step.rotation.y = -a;
+      stair.add(step);
+    }
+    tag(stair, "The spiral stair \u2014 a turn down is one page deeper, the rare below");
+    root.add(stair);
+
+    // three wings branch off the ring; Research and Law are built, Music is planned
+    function wing(angleDeg, color, label, built) {
+      const g = new THREE.Group();
+      const a = angleDeg * Math.PI / 180;
+      const dir = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
+      const op = built ? 1 : 0.22;
+      const mat = new THREE.MeshStandardMaterial({
+        color, roughness: 0.55, emissive: 0x101010,
+        transparent: !built, opacity: op,
+      });
+      for (let k2 = 1; k2 <= 3; k2++) {
+        const blk = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), mat);
+        blk.position.copy(dir.clone().multiplyScalar(R + 1.4 + k2 * 1.25));
+        g.add(blk);
+      }
+      const corr = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 3.6),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: built ? 0.7 : 0.18 }));
+      corr.position.copy(dir.clone().multiplyScalar(R + 2.2));
+      corr.lookAt(corr.position.clone().add(dir));
+      g.add(corr);
+      tag(g, label);
+      return g;
+    }
+    root.add(wing(35, 0x7fa0c8, "The Research Wing \u2014 papers, textbooks, open books", true));
+    root.add(wing(150, 0xc88a8a, "The Law Library \u2014 opinions, statutes, dockets", true));
+    root.add(wing(265, 0xb89adf, "The Music Wing \u2014 planned, not yet built", false));
+
+    // interaction: drag to spin, hover to name
+    let yaw = 0.5, pitch = 0, dragging = false, lx = 0, ly = 0, autoSpin = true;
+    const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+    function setLabel(t) { $("diagLabel").textContent = t || "\u00a0"; }
+    function onMove(cx, cy) {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((cx - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((cy - rect.top) / rect.height) * 2 + 1;
+      ray.setFromCamera(mouse, cam);
+      const hit = ray.intersectObjects(pickables, true)[0];
+      let obj = hit && hit.object;
+      while (obj && !obj.userData.label && obj.parent) obj = obj.parent;
+      setLabel(obj && obj.userData ? obj.userData.label : "");
+    }
+    canvas.addEventListener("pointerdown", (e) => { dragging = true; autoSpin = false; lx = e.clientX; ly = e.clientY; try { canvas.setPointerCapture(e.pointerId); } catch (er) {} });
+    canvas.addEventListener("pointerup", (e) => { dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch (er) {} });
+    canvas.addEventListener("pointermove", (e) => {
+      if (dragging) {
+        yaw += (e.clientX - lx) * 0.01;
+        pitch = Math.max(-0.6, Math.min(0.9, pitch + (e.clientY - ly) * 0.006));
+        lx = e.clientX; ly = e.clientY;
+      } else onMove(e.clientX, e.clientY);
+    });
+    canvas.addEventListener("pointerleave", () => setLabel(""));
+
+    function resize() {
+      const w = holder.clientWidth, h = holder.clientHeight;
+      if (!w || !h) return;
+      renderer.setSize(w, h, false);
+      cam.aspect = w / h; cam.updateProjectionMatrix();
+    }
+    let raf = 0;
+    function frame() {
+      raf = requestAnimationFrame(frame);
+      if (autoSpin) yaw += 0.0024;
+      root.rotation.y = yaw;
+      cam.position.set(0, 6 + pitch * 8, 16);
+      cam.lookAt(0, -1.6, 0);
+      renderer.render(scene, cam);
+    }
+    resize(); frame();
+    window.addEventListener("resize", resize);
+    DIAG = { resize };
+  }
+
   function openModal(id) {
     MODALS.forEach((m) => $(m).classList.toggle("hidden", m !== id));
     World.setPaused(true);
+    if (id === "about") initDiagram();
   }
   function closeModals() {
     MODALS.forEach((m) => $(m).classList.add("hidden"));
@@ -2937,12 +3118,17 @@ const World = (() => {
       $("pageNum").textContent = "\u2014";
     }
     if (b.wing) {
-      const isStatute = b.wing === "law" && b.extid &&
-        /^(USCODE|CFR)-/i.test(String(b.extid));
-      if (isStatute) {
+      const idStr = String(b.extid || "");
+      const isDocket = b.wing === "law" && /^recap:/i.test(idStr);
+      const isStatute = b.wing === "law" && /^(USCODE|CFR|PLAW)-/i.test(idStr);
+      if (isDocket) {
+        $("readerFacts").textContent =
+          (b.year ? "Filed " + b.year + " \u00b7 " : "") +
+          (b.author || "federal court") + " \u00b7 RECAP docket";
+      } else if (isStatute) {
         $("readerFacts").textContent =
           (b.year ? "Edition " + b.year + " \u00b7 " : "") +
-          (String(b.extid).indexOf("CFR") === 0 ? "Code of Federal Regulations" : "United States Code") +
+          (String(b.extid).indexOf("CFR") === 0 ? "Code of Federal Regulations" : String(b.extid).indexOf("PLAW") === 0 ? "Public Laws" : "United States Code") +
           " \u00b7 govinfo.gov";
       } else {
         const isBook = b.wing === "research" && b.extid &&
@@ -2974,13 +3160,17 @@ const World = (() => {
     const desc = $("readerDesc"), exc = $("readerExcerpt");
     exc.style.display = "none";
     if (b.wing) {
-      const isStatute = b.wing === "law" && b.extid &&
-        /^(USCODE|CFR)-/i.test(String(b.extid));
+      const idStr = String(b.extid || "");
+      const isDocket = b.wing === "law" && /^recap:/i.test(idStr);
+      const isStatute = b.wing === "law" && /^(USCODE|CFR|PLAW)-/i.test(idStr);
       const isBook = b.wing === "research" && b.extid &&
         /^(openstax:|[0-9]+\/)/.test(String(b.extid));
-      desc.textContent = isStatute
+      desc.textContent = isDocket
+        ? "A federal lawsuit \u2014 the whole story of the case: its parties, its filing " +
+          "history, and the documents freed from PACER. Shelved by how closely it\u2019s followed."
+        : isStatute
         ? "The written law itself \u2014 a title of the " +
-          (String(b.extid).indexOf("CFR") === 0 ? "Code of Federal Regulations" : "United States Code") +
+          (String(b.extid).indexOf("CFR") === 0 ? "Code of Federal Regulations" : String(b.extid).indexOf("PLAW") === 0 ? "Public Laws" : "United States Code") +
           ", as published by the Government Publishing Office."
         : isBook
         ? "An open, peer-reviewed work \u2014 free to read in full, shelved among the scholarship of " +
@@ -3039,8 +3229,27 @@ const World = (() => {
           links.appendChild(a);
         }
       } else {
-        const isStatute = b.extid && /^(USCODE|CFR)-/i.test(String(b.extid));
-        if (isStatute) {
+        const idStr = String(b.extid || "");
+        const isDocket = /^recap:/i.test(idStr);
+        const isStatute = /^(USCODE|CFR|PLAW)-/i.test(idStr);
+        if (isDocket) {
+          const t = document.createElement("button");
+          t.className = "pbtn";
+          t.textContent = "Open the docket \u2014 here";
+          t.addEventListener("click", () => openDocket({
+            id: idStr.replace(/^recap:/i, ""), title: b.title, court: b.author,
+            year: b.year, url: b.url,
+          }, "reader"));
+          links.appendChild(t);
+          if (b.url) {
+            const a = document.createElement("a");
+            a.className = "pbtn";
+            a.textContent = "CourtListener \u2197";
+            a.href = b.url; a.target = "_blank"; a.rel = "noopener";
+            a.style.textDecoration = "none";
+            links.appendChild(a);
+          }
+        } else if (isStatute) {
           if (b.pdf || b.url) {
             const t = document.createElement("a");
             t.className = "pbtn";
@@ -3079,8 +3288,10 @@ const World = (() => {
       }
       const wn = document.createElement("div");
       wn.style.cssText = "flex-basis:100%;font-size:11.5px;color:#7a6336;font-style:italic;margin-top:4px";
-      const isStatuteNote = b.wing === "law" && b.extid && /^(USCODE|CFR)-/i.test(String(b.extid));
-      wn.textContent = isStatuteNote
+      const idS = String(b.extid || "");
+      wn.textContent = /^recap:/i.test(idS)
+        ? "A federal case \u2014 the filing history opens here; freed documents link out to PACER."
+        : /^(USCODE|CFR|PLAW)-/i.test(idS)
         ? "Public law \u2014 the official text opens at govinfo.gov."
         : b.wing === "law"
         ? "Public record \u2014 the full opinion opens right here, typeset."
@@ -3513,18 +3724,18 @@ const World = (() => {
       tips: ["moby dick", "ursula k le guin", "a brief history of time"],
     },
     papers: {
-      h2: "Find a Paper",
-      intro: "Search arXiv \u2014 two and a half million research papers, every one readable in full.",
-      label: "Title, author, or topic", btn: "Search arXiv",
+      h2: "Find Research",
+      intro: "Search the world's open research \u2014 millions of arXiv papers and tens of thousands of open-access academic books, every one readable in full.",
+      label: "Title, author, or topic", btn: "Search research",
       ph: "attention is all you need",
-      tips: ["attention is all you need", "crispr gene editing", "gravitational waves"],
+      tips: ["attention is all you need", "climate change", "quantum computing"],
     },
     law: {
-      h2: "Find a Case",
-      intro: "Search U.S. case law \u2014 court opinions are public domain by their very nature.",
-      label: "Case name or topic", btn: "Search the law",
+      h2: "Find the Law",
+      intro: "Search U.S. law \u2014 court opinions, the U.S. Code and regulations, and federal case dockets, all public record.",
+      label: "Case, statute, or topic", btn: "Search the law",
       ph: "marbury v. madison",
-      tips: ["marbury v madison", "fair use", "miranda v arizona"],
+      tips: ["marbury v madison", "fair use", "clean air act"],
     },
   };
   function setTabUI() {
@@ -3610,6 +3821,46 @@ const World = (() => {
       flow.appendChild(er);
     }
   }
+  const docketTextCache = new Map(); // docket id -> text
+  async function openDocket(d, returnTo) {
+    const numId = String(d.id).replace(/[^0-9]/g, "");
+    if (!numId) { if (d.url) window.open(d.url, "_blank", "noopener"); return; }
+    const ret = returnTo || "reader";
+    TR_RETURN = ret;
+    $("btnCloseText").textContent = ret === "reader" ? "Return to the book" : "Return to the search";
+    TR_BOOK = null; TR = null;
+    $("trListen").classList.add("hidden");
+    $("trTitle").textContent = "\u201C" + d.title + "\u201D";
+    const byline = [d.court, d.year].filter(Boolean).join(" \u00b7 ");
+    $("trAuthor").textContent = byline;
+    $("trSource").textContent = "RECAP \u00b7 PACER docket";
+    const flow = $("tr-flow");
+    flow.innerHTML = '<p class="loading">fetching the docket\u2026</p>';
+    flow.style.transform = "translateX(0)";
+    flow.style.columnWidth = "";
+    $("trPage").textContent = "\u00a0";
+    openModal("textReader");
+    try {
+      let text = docketTextCache.get(numId);
+      if (!text) {
+        const r = await Catalog.annexDocket(numId);
+        text = (r && r.text) || "";
+        if (text) docketTextCache.set(numId, text);
+      }
+      if ($("textReader").classList.contains("hidden")) return;
+      if (!text) throw new Error("the docket holds no readable record");
+      startPlainReader(d.title, byline, "RECAP \u00b7 PACER docket",
+        text, "docket:" + numId, ret);
+    } catch (e) {
+      if ($("textReader").classList.contains("hidden")) return;
+      flow.innerHTML = "";
+      const er = document.createElement("p");
+      er.className = "loading";
+      er.textContent = "The docket could not be fetched \u2014 " + (e.message || "network error") +
+        (d.url ? ". CourtListener may still serve it directly." : ".");
+      flow.appendChild(er);
+    }
+  }
   async function annexSearchUI(kind, q) {
     if (!Catalog.remoteEnabled()) {
       $("searchErr").textContent = "The Annex lives on the self-hosted catalog \u2014 it isn\u2019t configured here.";
@@ -3623,22 +3874,48 @@ const World = (() => {
       $("searchSpin").style.display = "none";
       if (!docs.length) {
         $("searchErr").textContent = kind === "papers"
-          ? "arXiv has nothing under that \u2014 try broader terms."
-          : "No opinions matched \u2014 try a case name or a doctrine.";
+          ? "No research matched \u2014 try broader terms."
+          : "No law matched \u2014 try a case name, a statute, or a doctrine.";
         return;
       }
       for (const d of docs) {
         const row = document.createElement("div");
         row.className = "srow";
+        // law and research results are mixed: each doc carries a kind
+        const dk = (kind === "law" || kind === "papers") ? (d.kind ||
+          (kind === "papers" ? "paper" : "opinion")) : kind;
+        const icon = (dk === "statute" || dk === "paper") ? "\u00a7" :
+          dk === "book" ? "\u25a4" : "\u2696";
+        const badge = dk === "statute" ? "Statute" : dk === "docket" ? "Docket" :
+          dk === "opinion" ? "Opinion" : dk === "book" ? "Open book" :
+          dk === "paper" ? "Paper" : "Full text";
         row.innerHTML = '<div class="noimg"></div>' +
           '<div style="min-width:0"><div class="st"></div><div class="sm"></div></div>' +
-          '<div class="badge">Full text</div>';
-        row.querySelector(".noimg").textContent = kind === "papers" ? "\u00a7" : "\u2696";
+          '<div class="badge">' + badge + '</div>';
+        row.querySelector(".noimg").textContent = icon;
         row.querySelector(".st").textContent = d.title;
-        row.querySelector(".sm").textContent = kind === "papers"
-          ? ((d.authors || []).join(", ") + (d.year ? " \u00b7 " + d.year : "") + " \u00b7 arXiv " + d.id)
-          : [d.court, d.year, d.cite].filter(Boolean).join(" \u00b7 ");
-        row.addEventListener("click", () => (kind === "papers" ? openPaper(d) : openCase(d)));
+        if (kind === "papers") {
+          const auth = (d.authors || []).join(", ");
+          row.querySelector(".sm").textContent = dk === "book"
+            ? (auth + (d.year ? " \u00b7 " + d.year : "") + " \u00b7 open-access book").replace(/^ \u00b7 /, "")
+            : (auth + (d.year ? " \u00b7 " + d.year : "") + " \u00b7 arXiv " + d.id);
+        } else {
+          row.querySelector(".sm").textContent =
+            [d.court, d.year, d.cite].filter(Boolean).join(" \u00b7 ");
+        }
+        row.addEventListener("click", () => {
+          if (kind === "papers") return openPaper(d); // paper or book: both open the PDF in a tab
+          if (dk === "statute") {
+            const u = d.pdf || d.url;
+            if (u) { window.open(u, "_blank", "noopener"); toast("Opening the law at govinfo\u2026"); }
+            return;
+          }
+          if (dk === "docket") return openDocket({
+            id: String(d.id).replace(/^recap:/i, ""), title: d.title,
+            court: d.court, year: d.year, url: d.url,
+          }, "searchModal");
+          return openCase(d, "searchModal");
+        });
         $("searchList").appendChild(row);
       }
     } catch (e) {
