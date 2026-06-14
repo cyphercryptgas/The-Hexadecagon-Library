@@ -2952,11 +2952,13 @@ const World = (() => {
       bal: new THREE.CylinderGeometry(0.022, 0.022, 0.36, 6),
       vfloor: new THREE.BoxGeometry(CHORD * 0.92, 0.12, 2.7),
       vwall: new THREE.BoxGeometry(CHORD * 0.92, 1.5, 0.10),
+      // a solid outer shell spanning the room's outward face (closes the ring)
+      shell: new THREE.BoxGeometry(0.14, CEIL + 0.2, SIDE * 1.5),
     };
     function mkmat(c, r, emi, emiI) {
       return new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.75 : r,
         metalness: 0.05, emissive: emi || 0, emissiveIntensity: emiI || 0,
-        side: THREE.DoubleSide, transparent: true, opacity: 1 });
+        side: THREE.DoubleSide, transparent: false, opacity: 1 });
     }
     const pickables = [];
     function tag(o, l) { o.userData.label = l; pickables.push(o); return o; }
@@ -2993,6 +2995,10 @@ const World = (() => {
         const li = new THREE.Mesh(GEO.lint, rm(STONE, 0.85)); li.position.set(sgn * (APO - 0.02), DOOR_H + 0.09, DOOR_Z); g.add(li);
       });
       const rl = new THREE.Mesh(GEO.rail, rm(BRASS, 0.4, BRASS, 0.2)); rl.rotation.x = Math.PI / 2; rl.position.y = 0.5; g.add(rl);
+      // solid outer shell on the outward-facing side (local +x = radially outward),
+      // so looking at the ring from outside you see a continuous wall, not through rooms
+      const shell = new THREE.Mesh(GEO.shell, rm(0x5a4127, 0.82));
+      shell.position.set(APO + 0.12, (CEIL + 0.2) / 2 - 0.1, 0); g.add(shell);
       return g;
     }
     function buildVestibule(dim) {
@@ -3106,12 +3112,21 @@ const World = (() => {
       }
       if (tgtPitch != null) { pitch += (tgtPitch - pitch) * 0.12; if (Math.abs(tgtPitch - pitch) < 0.01) { pitch = tgtPitch; tgtPitch = null; } }
       xray += (tgtXray - xray) * 0.1;
-      // x-ray is an explicit toggle now (not auto-on-frontal), so you can study
-      // the solid structure from any angle, including straight on.
+      // x-ray toggle: when engaged, rooms become transparent and fade so the stairs
+      // show through; when off, rooms are fully opaque and genuinely block the view.
       if (Math.abs(tgtXray - xray) > 0.001 || lastFade !== xray) {
         const fade = xray;
-        for (let k = 0; k < roomMats.length; k++) { const m = roomMats[k]; m.opacity = m.userData.base * (1 - fade * 0.82); }
-        for (let k2 = 0; k2 < stairMats.length; k2++) { const sm2 = stairMats[k2]; sm2.opacity = Math.min(1, sm2.userData.base + fade * 0.2); }
+        const xon = fade > 0.01;
+        for (let k = 0; k < roomMats.length; k++) {
+          const m = roomMats[k];
+          if (m.transparent !== xon) { m.transparent = xon; m.needsUpdate = true; }
+          m.opacity = xon ? (1 - fade * 0.86) : 1;
+        }
+        for (let k2 = 0; k2 < stairMats.length; k2++) {
+          const sm2 = stairMats[k2];
+          if (sm2.transparent !== xon) { sm2.transparent = xon; sm2.needsUpdate = true; }
+          sm2.opacity = 1;
+        }
         lastFade = xray;
       }
       if (autoSpin) yaw += 0.0013;
