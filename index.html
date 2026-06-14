@@ -2960,12 +2960,16 @@ const World = (() => {
     }
     const pickables = [];
     function tag(o, l) { o.userData.label = l; pickables.push(o); return o; }
-    function depthOp(f) { return Math.max(0.42, 1 - f * (LOW ? 0.045 : 0.046)); }
+    function depthDim(f) { return Math.max(0.40, 1 - f * (LOW ? 0.052 : 0.050)); } // darken deep floors
     const roomMats = [], stairMats = [];
+    function dimColor(c, k) {
+      const r = ((c >> 16) & 255) * k, g = ((c >> 8) & 255) * k, b = (c & 255) * k;
+      return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+    }
 
-    function buildRoom(withBooks, baseOp) {
+    function buildRoom(withBooks, dim) {
       const g = new THREE.Group();
-      function rm(c, r, emi, emiI) { const m = mkmat(c, r, emi, emiI); m.userData.base = baseOp; m.opacity = baseOp; roomMats.push(m); return m; }
+      function rm(c, r, emi, emiI) { const m = mkmat(dimColor(c, dim), r, emi ? dimColor(emi, dim) : 0, emiI); m.userData.base = 1; m.opacity = 1; roomMats.push(m); return m; }
       const fl = new THREE.Mesh(GEO.floor, rm(FLOORC, 0.9)); fl.rotation.y = Math.PI / 6; g.add(fl);
       const cl = new THREE.Mesh(GEO.ceil, rm(0x2a1f14, 0.9)); cl.rotation.y = Math.PI / 6; cl.position.y = CEIL; g.add(cl);
       WALL_DEG.forEach(function (deg) {
@@ -2991,10 +2995,10 @@ const World = (() => {
       const rl = new THREE.Mesh(GEO.rail, rm(BRASS, 0.4, BRASS, 0.2)); rl.rotation.x = Math.PI / 2; rl.position.y = 0.5; g.add(rl);
       return g;
     }
-    function buildVestibule(baseOp) {
+    function buildVestibule(dim) {
       const g = new THREE.Group();
-      function rm(c, r) { const m = mkmat(c, r); m.userData.base = baseOp; m.opacity = baseOp; roomMats.push(m); return m; }
-      function sm(c, r, emi, emiI) { const m = mkmat(c, r, emi, emiI); const so = Math.max(baseOp, 0.8); m.userData.base = so; m.opacity = so; stairMats.push(m); return m; }
+      function rm(c, r) { const m = mkmat(dimColor(c, dim), r); m.userData.base = 1; m.opacity = 1; roomMats.push(m); return m; }
+      function sm(c, r, emi, emiI) { const m = mkmat(c, r, emi, emiI); m.userData.base = 1; m.opacity = 1; stairMats.push(m); return m; }
       const vf = new THREE.Mesh(GEO.vfloor, rm(0x3a2a18, 0.9)); vf.position.set(0, 0, DOOR_Z + 0.3); g.add(vf);
       const bw = new THREE.Mesh(GEO.vwall, rm(WOOD_D, 0.82)); bw.position.set(0, 0.75, DOOR_Z + 1.55); g.add(bw);
       const s2 = new THREE.Group(); s2.position.set(0, 0, 0.60);
@@ -3011,14 +3015,14 @@ const World = (() => {
     }
 
     for (let f = 0; f < FLOORS; f++) {
-      const fy = -f * LEVEL_H, op = depthOp(f), withBooks = (f < 2);
+      const fy = -f * LEVEL_H, dim = depthDim(f), withBooks = (f < 2);
       for (let i = 0; i < N; i++) {
         const ang = (i / N) * Math.PI * 2;
-        const rmm = buildRoom(withBooks, op);
+        const rmm = buildRoom(withBooks, dim);
         rmm.position.set(Math.cos(ang) * RING_R, fy, Math.sin(ang) * RING_R);
         rmm.rotation.y = -ang; root.add(rmm);
         const segAng = ((i + 0.5) / N) * Math.PI * 2;
-        const vb = buildVestibule(op);
+        const vb = buildVestibule(dim);
         vb.position.set(Math.cos(segAng) * RING_R, fy, Math.sin(segAng) * RING_R);
         vb.rotation.y = -segAng; root.add(vb);
       }
