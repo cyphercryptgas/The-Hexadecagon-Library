@@ -2915,9 +2915,10 @@ const World = (() => {
       return (touch && narrow) || fewCores;
     })();
 
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW, alpha: true,
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
       powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(LOW ? 1.5 : 2, window.devicePixelRatio || 1));
+    // high-DPI keeps it crisp; performance is bought back via fewer levels, not blur
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     const scene = new THREE.Scene();
     const cam = new THREE.PerspectiveCamera(46, 1, 0.1, 9000);
     const root = new THREE.Group(); scene.add(root);
@@ -2959,7 +2960,7 @@ const World = (() => {
     }
     const pickables = [];
     function tag(o, l) { o.userData.label = l; pickables.push(o); return o; }
-    function depthOp(f) { return Math.max(0.30, 1 - f * (LOW ? 0.070 : 0.046)); }
+    function depthOp(f) { return Math.max(0.42, 1 - f * (LOW ? 0.045 : 0.046)); }
     const roomMats = [], stairMats = [];
 
     function buildRoom(withBooks, baseOp) {
@@ -3032,7 +3033,7 @@ const World = (() => {
     seam.rotation.x = Math.PI / 2; seam.position.y = 0.05; root.add(seam);
 
     let yaw = 0.4, pitch = 0.55, dragging = false, lx = 0, ly = 0, autoSpin = true,
-      zoom = 1, tgtPitch = null, xray = 0, tgtXray = 0;
+      zoom = LOW ? 1.15 : 1, tgtPitch = null, xray = 0, tgtXray = 0, dYawV = 0, dPitchV = 0;
     const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
     function setLabel(t) { $("diagLabel").textContent = t || "\u00a0"; }
     function onHover(cx, cy) {
@@ -3052,8 +3053,9 @@ const World = (() => {
     canvas.addEventListener("pointerup", (e) => { dragging = false; try { canvas.releasePointerCapture(e.pointerId); } catch (er) {} });
     canvas.addEventListener("pointermove", (e) => {
       if (dragging) {
-        yaw += (e.clientX - lx) * 0.008;
-        pitch = Math.max(0.02, Math.min(1.52, pitch + (e.clientY - ly) * 0.006));
+        // accumulate into velocity; eased out in the frame loop for smooth glide
+        dYawV += (e.clientX - lx) * 0.008;
+        dPitchV += (e.clientY - ly) * 0.006;
         lx = e.clientX; ly = e.clientY;
       } else onHover(e.clientX, e.clientY);
     });
@@ -3061,6 +3063,19 @@ const World = (() => {
     canvas.addEventListener("wheel", (e) => {
       e.preventDefault(); zoom = Math.max(0.45, Math.min(3.4, zoom + (e.deltaY > 0 ? 0.1 : -0.1)));
     }, { passive: false });
+    // pinch-to-zoom on touch (two fingers)
+    let pinchD = 0;
+    canvas.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const d = Math.hypot(dx, dy);
+        if (pinchD) { zoom = Math.max(0.45, Math.min(3.4, zoom * (pinchD / d))); }
+        pinchD = d; autoSpin = false;
+      }
+    }, { passive: false });
+    canvas.addEventListener("touchend", () => { pinchD = 0; });
     const btnTop = $("diagTop"), btnFront = $("diagFront"), btnStairs = $("diagStairs");
     if (btnTop) btnTop.onclick = () => { autoSpin = false; tgtPitch = 1.50; tgtXray = 0; };
     if (btnFront) btnFront.onclick = () => { autoSpin = false; tgtPitch = 0.06; tgtXray = 0; };
@@ -3075,6 +3090,13 @@ const World = (() => {
     const midY = -((FLOORS - 1) * LEVEL_H) / 2;
     function frame() {
       requestAnimationFrame(frame);
+      // ease drag velocity into rotation so touch dragging glides instead of jitters
+      if (dYawV || dPitchV) {
+        yaw += dYawV; dYawV *= 0.72;
+        pitch = Math.max(0.02, Math.min(1.52, pitch + dPitchV)); dPitchV *= 0.72;
+        if (Math.abs(dYawV) < 0.0002) dYawV = 0;
+        if (Math.abs(dPitchV) < 0.0002) dPitchV = 0;
+      }
       if (tgtPitch != null) { pitch += (tgtPitch - pitch) * 0.12; if (Math.abs(tgtPitch - pitch) < 0.01) { pitch = tgtPitch; tgtPitch = null; } }
       xray += (tgtXray - xray) * 0.1;
       if (XRAY_LIVE) {
@@ -3089,7 +3111,12 @@ const World = (() => {
       }
       if (autoSpin) yaw += 0.0013;
       root.rotation.y = yaw;
-      const p = pitch, dist = RING_R * 2.7 * zoom;
+      const p = pitch;
+      // fit-aware distance: pull back when the canvas is narrow/portrait so the
+      // whole ring stays in frame instead of overflowing the sides on a phone.
+      const aspect = (cam.aspect || 1);
+      const fitK = aspect < 1 ? (2.7 + (1 / aspect - 1) * 2.0) : 2.7;
+      const dist = RING_R * fitK * zoom;
       const camY = midY + Math.sin(p) * dist * 1.1 + LEVEL_H * 2;
       const camDist = Math.cos(p) * dist;
       cam.position.set(0, camY, camDist + 0.001);
