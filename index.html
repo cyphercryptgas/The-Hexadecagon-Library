@@ -939,6 +939,10 @@ const Catalog = (() => {
     if (!REMOTE_BASE || !(await probe())) throw new Error("the catalog node is offline");
     return remoteJSON("/annex/docket?id=" + encodeURIComponent(id), 30000);
   }
+  async function annexStatute(id) {
+    if (!REMOTE_BASE || !(await probe())) throw new Error("the catalog node is offline");
+    return remoteJSON("/annex/statute?id=" + encodeURIComponent(id), 30000);
+  }
 
   const coverURL = (id, size) => "https://covers.openlibrary.org/b/id/" + id + "-" + (size || "M") + ".jpg";
 
@@ -947,7 +951,7 @@ const Catalog = (() => {
     subjectOf, pretty, keyOf,
     loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText, findAudio, findGutenberg,
     probe, remoteEnabled: () => !!REMOTE_BASE,
-    annexSearch, annexCase, annexDocket,
+    annexSearch, annexCase, annexDocket, annexStatute,
     setRealm, realmName, subjectCount, wingActive,
   };
 })();
@@ -3257,14 +3261,20 @@ const World = (() => {
             links.appendChild(a);
           }
         } else if (isStatute) {
-          if (b.url || b.pdf) {
-            const t = document.createElement("a");
-            t.className = "pbtn";
-            t.textContent = "Read the law \u2014 govinfo \u2197";
-            // the details page (url) reliably resolves; the content htm can 404
-            t.href = b.url || b.pdf; t.target = "_blank"; t.rel = "noopener";
-            t.style.textDecoration = "none";
-            links.appendChild(t);
+          const t = document.createElement("button");
+          t.className = "pbtn";
+          t.textContent = "Read the law \u2014 here";
+          t.addEventListener("click", () => openStatute({
+            id: b.extid, title: b.title, court: b.author, year: b.year,
+          }, "reader"));
+          links.appendChild(t);
+          if (b.url) {
+            const a = document.createElement("a");
+            a.className = "pbtn";
+            a.textContent = "govinfo \u2197";
+            a.href = b.url; a.target = "_blank"; a.rel = "noopener";
+            a.style.textDecoration = "none";
+            links.appendChild(a);
           }
         } else { // a court opinion: open in the typeset reader
           if (b.extid) {
@@ -3822,6 +3832,45 @@ const World = (() => {
     }
   }
   const docketTextCache = new Map(); // docket id -> text
+  async function openStatute(d, returnTo) {
+    const ret = returnTo || "reader";
+    TR_RETURN = ret;
+    $("btnCloseText").textContent = ret === "reader" ? "Return to the book" : "Return to the search";
+    TR_BOOK = null; TR = null;
+    $("trListen").classList.add("hidden");
+    $("trTitle").textContent = "\u201C" + d.title + "\u201D";
+    $("trAuthor").textContent = [d.court, d.year].filter(Boolean).join(" \u00b7 ");
+    $("trSource").textContent = "govinfo.gov \u00b7 U.S. Government Publishing Office";
+    const flow = $("tr-flow");
+    flow.innerHTML = '<p class="loading">fetching the text\u2026</p>';
+    flow.style.transform = "translateX(0)"; flow.style.columnWidth = "";
+    $("trPage").textContent = "\u00a0";
+    openModal("textReader");
+    try {
+      const r = await Catalog.annexStatute(d.id);
+      if ($("textReader").classList.contains("hidden")) return;
+      const text = (r && r.text) || "";
+      if (text && text.length > 40) {
+        startPlainReader(d.title, $("trAuthor").textContent,
+          "govinfo.gov \u00b7 U.S. Government Publishing Office", text, "statute:" + d.id, ret);
+      } else {
+        // no clean text available — offer the official page
+        flow.innerHTML = "";
+        const p = document.createElement("p");
+        p.style.cssText = "text-align:center;color:#8a7448;font-style:italic;margin-top:18vh";
+        p.innerHTML = "This text isn\u2019t available in a clean reading form. " +
+          (r && r.detail ? '<br><br><a href="' + r.detail + '" target="_blank" rel="noopener" style="color:#ffb45e">Open it at govinfo \u2197</a>' : "");
+        flow.appendChild(p);
+      }
+    } catch (e) {
+      if ($("textReader").classList.contains("hidden")) return;
+      flow.innerHTML = "";
+      const er = document.createElement("p");
+      er.style.cssText = "text-align:center;color:#8a7448;font-style:italic;margin-top:18vh";
+      er.textContent = "The law could not be fetched \u2014 " + (e.message || "network error") + ".";
+      flow.appendChild(er);
+    }
+  }
   async function openDocket(d, returnTo) {
     const numId = String(d.id).replace(/[^0-9]/g, "");
     if (!numId) { if (d.url) window.open(d.url, "_blank", "noopener"); return; }
@@ -3905,11 +3954,9 @@ const World = (() => {
         }
         row.addEventListener("click", () => {
           if (kind === "papers") return openPaper(d); // paper or book: both open the PDF in a tab
-          if (dk === "statute") {
-            const u = d.url || d.pdf;
-            if (u) { window.open(u, "_blank", "noopener"); toast("Opening the law at govinfo\u2026"); }
-            return;
-          }
+          if (dk === "statute") return openStatute({
+            id: d.id, title: d.title, court: d.court, year: d.year,
+          }, "searchModal");
           if (dk === "docket") return openDocket({
             id: String(d.id).replace(/^recap:/i, ""), title: d.title,
             court: d.court, year: d.year, url: d.url,
