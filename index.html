@@ -2937,11 +2937,29 @@ const World = (() => {
       $("pageNum").textContent = "\u2014";
     }
     if (b.wing) {
-      $("readerFacts").textContent =
-        (b.year ? (b.wing === "law" ? "Decided " : "Published ") + b.year + " \u00b7 " : "") +
-        (b.cited || 0).toLocaleString() + " citation" + (b.cited === 1 ? "" : "s") +
-        (b.extid ? " \u00b7 " + (b.wing === "law" ? "CourtListener #" + b.extid
-          : String(b.extid).replace("https://openalex.org/", "OpenAlex ")) : "");
+      const isStatute = b.wing === "law" && b.extid &&
+        /^(USCODE|CFR)-/i.test(String(b.extid));
+      if (isStatute) {
+        $("readerFacts").textContent =
+          (b.year ? "Edition " + b.year + " \u00b7 " : "") +
+          (String(b.extid).indexOf("CFR") === 0 ? "Code of Federal Regulations" : "United States Code") +
+          " \u00b7 govinfo.gov";
+      } else {
+        const isBook = b.wing === "research" && b.extid &&
+          /^(openstax:|[0-9]+\/)/.test(String(b.extid));
+        if (isBook) {
+          $("readerFacts").textContent =
+            (b.year ? "Published " + b.year + " \u00b7 " : "") +
+            (String(b.extid).indexOf("openstax:") === 0 ? "OpenStax \u00b7 open textbook"
+              : "DOAB \u00b7 open-access book");
+        } else {
+          $("readerFacts").textContent =
+            (b.year ? (b.wing === "law" ? "Decided " : "Published ") + b.year + " \u00b7 " : "") +
+            (b.cited || 0).toLocaleString() + " citation" + (b.cited === 1 ? "" : "s") +
+            (b.extid ? " \u00b7 " + (b.wing === "law" ? "CourtListener #" + b.extid
+              : String(b.extid).replace("https://openalex.org/", "OpenAlex ")) : "");
+        }
+      }
     } else {
       $("readerFacts").textContent =
         (b.year ? "First published " + b.year + " \u00b7 " : "") +
@@ -2956,7 +2974,18 @@ const World = (() => {
     const desc = $("readerDesc"), exc = $("readerExcerpt");
     exc.style.display = "none";
     if (b.wing) {
-      desc.textContent = b.wing === "research"
+      const isStatute = b.wing === "law" && b.extid &&
+        /^(USCODE|CFR)-/i.test(String(b.extid));
+      const isBook = b.wing === "research" && b.extid &&
+        /^(openstax:|[0-9]+\/)/.test(String(b.extid));
+      desc.textContent = isStatute
+        ? "The written law itself \u2014 a title of the " +
+          (String(b.extid).indexOf("CFR") === 0 ? "Code of Federal Regulations" : "United States Code") +
+          ", as published by the Government Publishing Office."
+        : isBook
+        ? "An open, peer-reviewed work \u2014 free to read in full, shelved among the scholarship of " +
+          Catalog.pretty(Catalog.subjectOf(si)).toLowerCase() + "."
+        : b.wing === "research"
         ? "Among the most cited works in " + Catalog.pretty(Catalog.subjectOf(si)).toLowerCase() +
           " \u2014 the literature, ranked by how often it\u2019s built upon."
         : "An opinion of the " + (b.author || "court") +
@@ -3010,29 +3039,52 @@ const World = (() => {
           links.appendChild(a);
         }
       } else {
-        if (b.extid) {
-          const t = document.createElement("button");
-          t.className = "pbtn";
-          t.textContent = "Read the opinion \u2014 here";
-          t.addEventListener("click", () => openCase({
-            id: b.extid, title: b.title, court: b.author, year: b.year, cite: "", url: b.url,
-          }, "reader"));
-          links.appendChild(t);
-        }
-        if (b.url) {
-          const a = document.createElement("a");
-          a.className = "pbtn";
-          a.textContent = "CourtListener \u2197";
-          a.href = b.url; a.target = "_blank"; a.rel = "noopener";
-          a.style.textDecoration = "none";
-          links.appendChild(a);
+        const isStatute = b.extid && /^(USCODE|CFR)-/i.test(String(b.extid));
+        if (isStatute) {
+          if (b.pdf || b.url) {
+            const t = document.createElement("a");
+            t.className = "pbtn";
+            t.textContent = "Read the law \u2014 govinfo \u2197";
+            t.href = b.pdf || b.url; t.target = "_blank"; t.rel = "noopener";
+            t.style.textDecoration = "none";
+            links.appendChild(t);
+          }
+          if (b.url && b.pdf && b.url !== b.pdf) {
+            const a = document.createElement("a");
+            a.className = "pbtn";
+            a.textContent = "Title page \u2197";
+            a.href = b.url; a.target = "_blank"; a.rel = "noopener";
+            a.style.textDecoration = "none";
+            links.appendChild(a);
+          }
+        } else { // a court opinion: open in the typeset reader
+          if (b.extid) {
+            const t = document.createElement("button");
+            t.className = "pbtn";
+            t.textContent = "Read the opinion \u2014 here";
+            t.addEventListener("click", () => openCase({
+              id: b.extid, title: b.title, court: b.author, year: b.year, cite: "", url: b.url,
+            }, "reader"));
+            links.appendChild(t);
+          }
+          if (b.url) {
+            const a = document.createElement("a");
+            a.className = "pbtn";
+            a.textContent = "CourtListener \u2197";
+            a.href = b.url; a.target = "_blank"; a.rel = "noopener";
+            a.style.textDecoration = "none";
+            links.appendChild(a);
+          }
         }
       }
       const wn = document.createElement("div");
       wn.style.cssText = "flex-basis:100%;font-size:11.5px;color:#7a6336;font-style:italic;margin-top:4px";
-      wn.textContent = b.wing === "law"
+      const isStatuteNote = b.wing === "law" && b.extid && /^(USCODE|CFR)-/i.test(String(b.extid));
+      wn.textContent = isStatuteNote
+        ? "Public law \u2014 the official text opens at govinfo.gov."
+        : b.wing === "law"
         ? "Public record \u2014 the full opinion opens right here, typeset."
-        : (b.pdf ? "Open access \u2014 the paper opens right here."
+        : (b.pdf ? "Open access \u2014 the work opens in a new tab."
                  : "No open copy in the index \u2014 the link leads to the publisher.");
       links.appendChild(wn);
       return;
