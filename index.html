@@ -260,15 +260,33 @@
   #diagViews button{font-size:11px;padding:4px 10px;background:rgba(40,30,18,.82);color:var(--amber);border:1px solid var(--line-soft);border-radius:6px;cursor:pointer;letter-spacing:.05em;font-family:inherit}
   #diagViews button:hover{background:rgba(60,46,26,.95)}
   #diagViews button.on{background:var(--amber);color:#231803;border-color:var(--amber)}
-  #dirList{margin-top:14px;max-height:52vh;overflow-y:auto;padding-right:4px}
-  .dir-group{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brass-dim);margin:16px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line-soft)}
-  .dir-group:first-child{margin-top:2px}
-  .dir-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px}
-  .dir-item{display:flex;align-items:baseline;gap:8px;padding:8px 11px;background:rgba(255,255,255,.015);border:1px solid var(--line-soft);border-radius:7px;cursor:pointer;transition:background .12s,border-color .12s;text-align:left;color:inherit;font:inherit;width:100%}
-  .dir-item:hover{background:rgba(216,168,92,.10);border-color:var(--brass-dim)}
-  .dir-item .di-name{flex:1;font-size:14px;color:var(--ink,#e8dcc4);text-transform:capitalize}
-  .dir-item .di-n{font-size:11px;color:var(--brass-dim);font-variant-numeric:tabular-nums}
-  .dir-empty{padding:24px 8px;text-align:center;color:var(--brass-dim);font-style:italic}
+  #dirList{margin-top:6px;max-height:50vh;overflow-y:auto;overflow-x:hidden;padding-right:6px}
+  .dir-lede{color:var(--brass-dim);font-size:13.5px;line-height:1.55;margin:0 0 16px}
+  .dir-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  .dir-controls .field{flex:1;min-width:160px;margin:0}
+  .dir-toggle{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--brass-dim);cursor:pointer;user-select:none;white-space:nowrap}
+  .dir-toggle input{accent-color:var(--amber);width:15px;height:15px;cursor:pointer}
+  .dir-group{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--brass-dim);margin:20px 2px 9px;display:flex;align-items:center;gap:10px}
+  .dir-group::after{content:"";flex:1;height:1px;background:var(--line-soft)}
+  .dir-group:first-child{margin-top:4px}
+  .dir-row{border:1px solid var(--line-soft);border-radius:9px;margin-bottom:7px;overflow:hidden;background:rgba(255,255,255,.012);transition:border-color .14s}
+  .dir-row:hover{border-color:var(--brass-dim)}
+  .dir-head{display:flex;align-items:center;gap:10px;padding:11px 13px}
+  .dir-subj{flex:1;font-size:15px;color:var(--ink,#ece0c8);text-transform:capitalize;letter-spacing:.01em}
+  .dir-acts{display:flex;gap:6px;flex-shrink:0}
+  .dir-act{font-size:11.5px;letter-spacing:.04em;padding:5px 11px;border:1px solid var(--line-soft);border-radius:6px;background:transparent;color:var(--brass);cursor:pointer;transition:background .12s,color .12s,border-color .12s;font-family:inherit}
+  .dir-act:hover{background:var(--amber);color:#231803;border-color:var(--amber)}
+  .dir-act.go{color:var(--amber)}
+  .dir-act.listen::before{content:"\1F3A7  ";font-size:10px}
+  .dir-titles{display:none;border-top:1px solid var(--line-soft);padding:6px 8px 9px;background:rgba(0,0,0,.12)}
+  .dir-titles.open{display:block}
+  .dir-title-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink,#d8ccb4);transition:background .1s}
+  .dir-title-item:hover{background:rgba(216,168,92,.10)}
+  .dir-title-item .dt-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dir-title-item .dt-auth{color:var(--brass-dim);font-size:11.5px;flex-shrink:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dir-title-item .dt-audio{color:var(--amber);font-size:11px;flex-shrink:0}
+  .dir-titles-status{padding:10px;text-align:center;color:var(--brass-dim);font-size:12px;font-style:italic}
+  .dir-empty{padding:26px 8px;text-align:center;color:var(--brass-dim);font-style:italic}
   #diagCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
   #diagCanvas:active{cursor:grabbing}
   #diagHint{padding:6px 12px 0;font-size:11px;color:#6f5a33;letter-spacing:.08em;pointer-events:none}
@@ -457,8 +475,11 @@
     <button class="closex" data-close>×</button>
     <h2>The Directory</h2>
     <div class="rule"></div>
-    <p>Every gallery in the library, by name. Filter the list, or step straight into any subject. The wings of research and law keep their own halls below.</p>
-    <input id="dirFilter" class="field" placeholder="filter subjects \u2014 try &quot;myth&quot;, &quot;science&quot;, &quot;law&quot;\u2026" spellcheck="false" autocomplete="off">
+    <p class="dir-lede">Every gallery in the library. Walk into a subject, open its titles where you stand, or listen \u2014 the wings of research and law keep their own halls below.</p>
+    <div class="dir-controls">
+      <input id="dirFilter" class="field" placeholder="Filter subjects\u2026" spellcheck="false" autocomplete="off">
+      <label class="dir-toggle"><input type="checkbox" id="dirAudioOnly"><span>Audiobooks only</span></label>
+    </div>
     <div id="dirList"></div>
   </div>
 </div>
@@ -957,6 +978,26 @@ const Catalog = (() => {
         (author ? "&author=" + encodeURIComponent(author) : ""), 30000);
     } catch (e) { return null; }
   }
+  // batch audio availability: pass [{title,author}], get back array of booleans
+  async function audioCheck(items) {
+    if (!REMOTE_BASE || !(await probe()) || !items.length) return null;
+    const q = items.map((it) =>
+      encodeURIComponent(it.title || "") + "|" + encodeURIComponent(it.author || "")).join(";;");
+    try {
+      const j = await remoteJSON("/audio/check?q=" + q, 20000);
+      return (j && j.has) || null;
+    } catch (e) { return null; }
+  }
+  let _audioIndexed = null;
+  async function audioIndexed() {
+    if (_audioIndexed !== null) return _audioIndexed;
+    if (!REMOTE_BASE || !(await probe())) return (_audioIndexed = false);
+    try {
+      const j = await remoteJSON("/audio/indexed", 10000);
+      _audioIndexed = !!(j && j.indexed);
+    } catch (e) { _audioIndexed = false; }
+    return _audioIndexed;
+  }
 
   // The Annex: research papers (arXiv) and case law (CourtListener),
   // proxied and cached by the catalog node.
@@ -986,6 +1027,7 @@ const Catalog = (() => {
     loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText, findAudio, findGutenberg,
     probe, remoteEnabled: () => !!REMOTE_BASE,
     annexSearch, annexCase, annexDocket, annexStatute,
+    audioCheck, audioIndexed,
     setRealm, realmName, subjectCount, wingActive,
     subjectsOf: subjectsNow,
     wingSubjectsOf: (rk) => (wingInfo && wingInfo[rk] && wingInfo[rk].subjects) || [],
@@ -3191,25 +3233,33 @@ const World = (() => {
     ["Mind & Society", ["education", "language", "law", "politics", "economics", "business", "engineering"]],
   ];
 
-  let dirBuilt = false;
+  let dirBuilt = false, dirAudioOnly = false, dirAudioReady = null;
   function initDirectory() {
+    Catalog.audioIndexed().then((ok) => {
+      dirAudioReady = ok;
+      const wrap = $("dirAudioOnly") && $("dirAudioOnly").closest(".dir-toggle");
+      if (wrap) wrap.style.display = ok ? "" : "none"; // hide the toggle until the index exists
+    });
+    buildDirectory();
     if (!dirBuilt) {
-      buildDirectory();
       dirBuilt = true;
       const filt = $("dirFilter");
       if (filt) filt.addEventListener("input", () => filterDirectory(filt.value));
+      const aud = $("dirAudioOnly");
+      if (aud) aud.addEventListener("change", () => {
+        dirAudioOnly = aud.checked;
+        applyDirAudioOnly();
+      });
     }
-    // refresh wing availability each open (wings may have come online)
-    buildDirectory();
     const filt = $("dirFilter");
     if (filt && filt.value) filterDirectory(filt.value);
   }
 
-  function dirJump(target) {
-    // target: { realm, subject } — switch realm if needed, find the subject index, walk in
+  // walk the player into a subject (switching realm if needed)
+  function dirJump(realmName, subject) {
     closeModals();
     if (!entered) enterLibrary();
-    const wantRealm = target.realm || "stacks";
+    const wantRealm = realmName || "stacks";
     if (wantRealm !== realm) {
       if (wantRealm !== "stacks" && !Catalog.wingActive(wantRealm)) {
         toast(REALM_LABEL[wantRealm] + " is still under construction");
@@ -3217,46 +3267,151 @@ const World = (() => {
       }
       realmPos[realm] = { si, depth };
       realm = wantRealm; Catalog.setRealm(wantRealm);
-      depth = 0;
-      syncPortals();
+      depth = 0; syncPortals();
     }
     const subs = Catalog.subjectsOf ? Catalog.subjectsOf() : null;
-    let idx = -1;
-    if (subs && subs.length) {
-      idx = subs.indexOf(target.subject);
-    }
+    let idx = subs && subs.length ? subs.indexOf(subject) : -1;
     if (idx < 0) idx = 0;
     si = idx;
     afterRoomChange();
     World.placeAtCenter(60);
-    toast("You step into \u201C" + Catalog.pretty(target.subject) + "\u201D");
+    toast("You step into \u201C" + Catalog.pretty(subject) + "\u201D");
   }
 
-  function dirItem(name, realmName) {
-    const b = document.createElement("button");
-    b.className = "dir-item";
-    b.dataset.name = name.toLowerCase();
-    b.innerHTML = '<span class="di-name"></span><span class="di-n">enter \u2192</span>';
-    b.querySelector(".di-name").textContent = Catalog.pretty(name);
-    b.addEventListener("click", () => dirJump({ realm: realmName, subject: name }));
-    return b;
+  // open a single title straight from the directory
+  function dirOpenTitle(book) {
+    closeModals();
+    // present it in the reader as a one-book shelf
+    openReader([book], 0, true);
+  }
+
+  // build one subject row with its three actions
+  function dirRow(name, realmName) {
+    const row = document.createElement("div");
+    row.className = "dir-row";
+    row.dataset.name = name.toLowerCase();
+    row.dataset.realm = realmName;
+    row.dataset.subject = name;
+
+    const head = document.createElement("div");
+    head.className = "dir-head";
+    const subj = document.createElement("div");
+    subj.className = "dir-subj";
+    subj.textContent = Catalog.pretty(name);
+    head.appendChild(subj);
+
+    const acts = document.createElement("div");
+    acts.className = "dir-acts";
+    const goB = document.createElement("button");
+    goB.className = "dir-act go"; goB.textContent = "Go there";
+    goB.addEventListener("click", () => dirJump(realmName, name));
+    const browseB = document.createElement("button");
+    browseB.className = "dir-act browse"; browseB.textContent = "Browse titles";
+    const listenB = document.createElement("button");
+    listenB.className = "dir-act listen"; listenB.textContent = "Listen";
+    acts.appendChild(goB); acts.appendChild(browseB);
+    if (realmName === "stacks") acts.appendChild(listenB); // audio only matches the book stacks
+    head.appendChild(acts);
+    row.appendChild(head);
+
+    const titles = document.createElement("div");
+    titles.className = "dir-titles";
+    row.appendChild(titles);
+
+    let loaded = false, loadedAudioOnly = null;
+    function toggleTitles(audioOnly) {
+      const open = titles.classList.contains("open");
+      // if already open with the same mode, close it
+      if (open && loadedAudioOnly === audioOnly) { titles.classList.remove("open"); return; }
+      titles.classList.add("open");
+      loadTitles(audioOnly);
+    }
+    function loadTitles(audioOnly) {
+      loadedAudioOnly = audioOnly;
+      titles.innerHTML = '<div class="dir-titles-status">gathering the shelves\u2026</div>';
+      // need the subject index in its realm to load the room
+      const prevRealm = Catalog.realmName();
+      Catalog.setRealm(realmName);
+      const subs = Catalog.subjectsOf();
+      const sidx = subs.indexOf(name);
+      Catalog.setRealm(prevRealm); // restore
+      if (sidx < 0) { titles.innerHTML = '<div class="dir-titles-status">no shelves here yet.</div>'; return; }
+      renderTitles(sidx, audioOnly, prevRealm);
+    }
+    async function renderTitles(sidx, audioOnly, prevRealm) {
+      // temporarily switch realm so loadRoom queries the right corpus
+      Catalog.setRealm(realmName);
+      let room;
+      try {
+        room = await new Promise((res) => {
+          let done = false;
+          const r = Catalog.loadRoom(sidx, 0, () => {});
+          Promise.resolve(r).then((rr) => { if (!done) { done = true; res(rr); } });
+          setTimeout(() => { if (!done) { done = true; res(Catalog.peekRoom(sidx, 0)); } }, 9000);
+        });
+      } catch (e) { room = Catalog.peekRoom(sidx, 0); }
+      Catalog.setRealm(prevRealm);
+      const books = (room && room.books ? room.books : []).filter(Boolean);
+      if (!books.length) {
+        titles.innerHTML = '<div class="dir-titles-status">these shelves are still filling \u2014 walk in to browse them.</div>';
+        return;
+      }
+      // de-dupe by title, cap the list for sanity
+      const seen = new Set(), uniq = [];
+      for (const b of books) {
+        const k = (b.title || "").toLowerCase();
+        if (k && !seen.has(k)) { seen.add(k); uniq.push(b); }
+        if (uniq.length >= 60) break;
+      }
+      let show = uniq;
+      let audioSet = null;
+      if (audioOnly || (dirAudioOnly && realmName === "stacks")) {
+        titles.innerHTML = '<div class="dir-titles-status">finding the recordings\u2026</div>';
+        const flags = await Catalog.audioCheck(uniq.map((b) => ({ title: b.title, author: b.author })));
+        if (flags) {
+          audioSet = new Set();
+          uniq.forEach((b, i) => { if (flags[i]) audioSet.add(b); });
+          if (audioOnly) show = uniq.filter((b) => audioSet.has(b));
+        }
+      }
+      if (!show.length) {
+        titles.innerHTML = '<div class="dir-titles-status">no audiobooks found in this gallery.</div>';
+        return;
+      }
+      titles.innerHTML = "";
+      show.forEach((b) => {
+        const it = document.createElement("div");
+        it.className = "dir-title-item";
+        const nm = document.createElement("span");
+        nm.className = "dt-name"; nm.textContent = b.title || "Untitled";
+        const au = document.createElement("span");
+        au.className = "dt-auth"; au.textContent = b.author || "";
+        it.appendChild(nm); it.appendChild(au);
+        if (audioSet && audioSet.has(b)) {
+          const a = document.createElement("span");
+          a.className = "dt-audio"; a.textContent = "\u266A";
+          it.appendChild(a);
+        }
+        it.addEventListener("click", () => dirOpenTitle(b));
+        titles.appendChild(it);
+      });
+    }
+    browseB.addEventListener("click", () => toggleTitles(false));
+    listenB.addEventListener("click", () => toggleTitles(true));
+    row._reloadIfOpen = () => { if (titles.classList.contains("open")) loadTitles(loadedAudioOnly); };
+    return row;
   }
 
   function buildDirectory() {
     const list = $("dirList");
     if (!list) return;
     list.innerHTML = "";
-    // the main stacks, grouped thematically
     DIR_GROUPS.forEach(([title, subs]) => {
       const h = document.createElement("div");
       h.className = "dir-group"; h.textContent = title;
       list.appendChild(h);
-      const grid = document.createElement("div");
-      grid.className = "dir-grid";
-      subs.forEach((s) => grid.appendChild(dirItem(s, "stacks")));
-      list.appendChild(grid);
+      subs.forEach((s) => list.appendChild(dirRow(s, "stacks")));
     });
-    // the wings, if their indexes are built
     [["research", "The Research Wing"], ["law", "The Law Library"]].forEach(([rk, label]) => {
       if (!Catalog.wingActive(rk)) return;
       const subs = (Catalog.wingSubjectsOf && Catalog.wingSubjectsOf(rk)) || [];
@@ -3264,11 +3419,15 @@ const World = (() => {
       const h = document.createElement("div");
       h.className = "dir-group"; h.textContent = label;
       list.appendChild(h);
-      const grid = document.createElement("div");
-      grid.className = "dir-grid";
-      subs.forEach((s) => grid.appendChild(dirItem(s, rk)));
-      list.appendChild(grid);
+      subs.forEach((s) => list.appendChild(dirRow(s, rk)));
     });
+  }
+
+  function applyDirAudioOnly() {
+    // reload any open title lists, and the filter handles row visibility
+    const list = $("dirList");
+    if (!list) return;
+    list.querySelectorAll(".dir-row").forEach((r) => { if (r._reloadIfOpen) r._reloadIfOpen(); });
   }
 
   function filterDirectory(q) {
@@ -3276,18 +3435,21 @@ const World = (() => {
     const list = $("dirList");
     if (!list) return;
     let anyVisible = false;
-    list.querySelectorAll(".dir-grid").forEach((grid) => {
-      let groupHas = false;
-      grid.querySelectorAll(".dir-item").forEach((it) => {
-        const match = !term || it.dataset.name.indexOf(term) !== -1;
-        it.style.display = match ? "" : "none";
-        if (match) { groupHas = true; anyVisible = true; }
-      });
-      // hide the group header too if nothing in it matches
-      const header = grid.previousElementSibling;
-      if (header && header.classList.contains("dir-group")) header.style.display = groupHas ? "" : "none";
-      grid.style.display = groupHas ? "" : "none";
+    // track per-group visibility
+    let currentHeader = null, headerHas = false;
+    Array.from(list.children).forEach((node) => {
+      if (node.classList.contains("dir-group")) {
+        if (currentHeader) currentHeader.style.display = headerHas ? "" : "none";
+        currentHeader = node; headerHas = false;
+        return;
+      }
+      if (node.classList.contains("dir-row")) {
+        const match = !term || node.dataset.name.indexOf(term) !== -1;
+        node.style.display = match ? "" : "none";
+        if (match) { headerHas = true; anyVisible = true; }
+      }
     });
+    if (currentHeader) currentHeader.style.display = headerHas ? "" : "none";
     let empty = list.querySelector(".dir-empty");
     if (!anyVisible) {
       if (!empty) {
@@ -3299,6 +3461,7 @@ const World = (() => {
       empty.style.display = "";
     } else if (empty) empty.style.display = "none";
   }
+
 
   function openModal(id) {
     MODALS.forEach((m) => $(m).classList.toggle("hidden", m !== id));
