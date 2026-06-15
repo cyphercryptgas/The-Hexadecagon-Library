@@ -513,7 +513,8 @@
     <div class="rule"></div>
     <p class="dir-lede">Every gallery in the library. Walk into a subject, open its titles where you stand, or listen \u2014 the wings of research and law keep their own halls below.</p>
     <div class="dir-controls">
-      <input id="dirFilter" class="field" placeholder="Filter subjects\u2026" spellcheck="false" autocomplete="off">
+      <input id="dirFilter" class="field" placeholder="Search titles\u2026" spellcheck="false" autocomplete="off">
+      <label class="dir-toggle"><input type="checkbox" id="dirFullText"><span>Full text only</span></label>
       <label class="dir-toggle"><input type="checkbox" id="dirAudioOnly"><span>Audiobooks only</span></label>
     </div>
     <div id="dirList"></div>
@@ -3347,7 +3348,9 @@ const World = (() => {
     ["Mind & Society", ["education", "language", "law", "politics", "economics", "business", "engineering"]],
   ];
 
-  let dirBuilt = false, dirAudioOnly = false, dirAudioReady = null;
+  let dirBuilt = false, dirAudioOnly = false, dirAudioReady = null, dirFullText = false;
+  // a book is "readable" if it has real full text (gutenberg) OR a free public scan
+  const isReadable = (b) => !!(b && (b.gutenberg || b.access === "public"));
   let abLetter = "", abPage = 0; // audiobook browser state
   function initDirectory() {
     Catalog.audioIndexed().then((ok) => { dirAudioReady = ok; });
@@ -3358,7 +3361,18 @@ const World = (() => {
       if (filt) filt.addEventListener("input", () => {
         if (dirAudioOnly) { abLetter = ""; abPage = 0; renderAudiobookBrowser(filt.value); }
         else if (bkCat) { bkLetter = ""; bkPage = 0; renderBookBrowser(filt.value); }
-        else filterDirectory(filt.value);
+        else if (filt.value.trim().length >= 2) renderGlobalTitleSearch(filt.value);
+        else renderCategoryList(); // cleared the box -> back to the category list
+      });
+      const ft = $("dirFullText");
+      if (ft) ft.addEventListener("change", () => {
+        dirFullText = ft.checked;
+        // re-render whatever view is showing so the filter applies live
+        const f = $("dirFilter");
+        if (dirAudioOnly) { /* audiobooks are all readable; no-op */ }
+        else if (bkCat) { bkPage = 0; renderBookBrowser(f ? f.value : ""); }
+        else if (f && f.value.trim().length >= 2) renderGlobalTitleSearch(f.value);
+        else renderCategoryList();
       });
       const aud = $("dirAudioOnly");
       if (aud) aud.addEventListener("change", () => {
@@ -3366,11 +3380,71 @@ const World = (() => {
         abLetter = ""; abPage = 0;
         const filt2 = $("dirFilter");
         if (filt2) filt2.value = "";
+        // the Full-text filter only applies to books; hide it in audiobook mode
+        const ftLabel = $("dirFullText") ? $("dirFullText").closest(".dir-toggle") : null;
+        if (ftLabel) ftLabel.style.display = aud.checked ? "none" : "";
         buildDirectory(); // rebuild in the chosen mode
       });
     }
     const filt = $("dirFilter");
-    if (filt && filt.value && !dirAudioOnly) filterDirectory(filt.value);
+    if (filt && filt.value && !dirAudioOnly) {
+      if (filt.value.trim().length >= 2) renderGlobalTitleSearch(filt.value);
+    }
+  }
+
+  // global title search across the whole catalog (category-list view)
+  let globalSearchSeq = 0;
+  async function renderGlobalTitleSearch(term) {
+    const list = $("dirList");
+    if (!list) return;
+    const q = (term || "").trim();
+    const seq = ++globalSearchSeq;
+    list.innerHTML = "";
+    // a back bar to return to the categories
+    const bar = document.createElement("div");
+    bar.className = "dir-backbar";
+    const back = document.createElement("button");
+    back.className = "dir-backbtn"; back.textContent = "\u2190 Categories";
+    back.addEventListener("click", () => { const f = $("dirFilter"); if (f) f.value = ""; renderCategoryList(); });
+    bar.appendChild(back);
+    const ttl = document.createElement("span");
+    ttl.className = "dir-backttl"; ttl.textContent = "Search";
+    bar.appendChild(ttl);
+    list.appendChild(bar);
+
+    const status = document.createElement("div");
+    status.className = "dir-titles-status";
+    status.textContent = "searching the whole library\u2026";
+    list.appendChild(status);
+
+    let results = [];
+    try { results = await Catalog.searchBooks(q, 60); } catch (e) { results = []; }
+    if (seq !== globalSearchSeq) return; // a newer keystroke superseded this one
+    status.remove();
+
+    if (dirFullText) results = results.filter(isReadable);
+    // best-effort audio marking on the matches
+    if (dirAudioReady && results.length) {
+      try {
+        const r = await Catalog.audioCheck(results.slice(0, 60).map((b) => ({ title: b.title, author: b.author })));
+        if (seq !== globalSearchSeq) return;
+        if (r && r.has) results.forEach((b, i) => { if (r.has[i]) { b._hasAudio = true; if (r.ids[i]) b._lvid = r.ids[i]; } });
+      } catch (e) {}
+    }
+
+    const head = document.createElement("div");
+    head.className = "dir-group";
+    head.textContent = results.length
+      ? results.length + " title" + (results.length === 1 ? "" : "s") + " matching \u201C" + q + "\u201D"
+        + (dirFullText ? " (readable)" : "")
+      : "No titles found for \u201C" + q + "\u201D" + (dirFullText ? " in readable form" : "");
+    list.appendChild(head);
+
+    if (!results.length) return;
+    const wrap = document.createElement("div");
+    wrap.className = "ab-list";
+    results.forEach((b) => wrap.appendChild(titleItem(b, b._hasAudio, () => dirOpenTitle(b))));
+    list.appendChild(wrap);
   }
 
   // walk the player into a subject (switching realm if needed)
@@ -3496,7 +3570,7 @@ const World = (() => {
     const list = $("dirList");
     list.innerHTML = "";
     const filt = $("dirFilter");
-    if (filt) filt.placeholder = "Filter categories\u2026";
+    if (filt) filt.placeholder = "Search titles\u2026";
     const h = document.createElement("div");
     h.className = "dir-group"; h.textContent = "The Stacks \u2014 published books";
     list.appendChild(h);
@@ -3510,7 +3584,8 @@ const World = (() => {
       list.appendChild(gh);
       subs.forEach((s) => list.appendChild(categoryRow(Catalog.pretty(s), [s], rk)));
     });
-    if (filt && filt.value) filterDirectory(filt.value);
+    // if there's already a query in the box, run a global title search instead
+    if (filt && filt.value.trim().length >= 2) renderGlobalTitleSearch(filt.value);
   }
 
   function categoryRow(title, subjectNames, realmName) {
@@ -3589,12 +3664,14 @@ const World = (() => {
     // filter: search term or letter
     const sortKey = (t) => (t || "").toLowerCase().replace(/^(the|a|an)\s+/, "").trim();
     let books = bkCache;
+    if (dirFullText) books = books.filter(isReadable); // only readable titles
     if (term) books = books.filter((b) => (b.title || "").toLowerCase().includes(term) || (b.author || "").toLowerCase().includes(term));
     else if (bkLetter) books = books.filter((b) => sortKey(b.title).charAt(0) === bkLetter);
 
-    // letter strip (hidden while searching)
+    // letter strip reflects only the (possibly filtered) set that's actually present
+    const letterSource = dirFullText ? bkCache.filter(isReadable) : bkCache;
     if (!term) {
-      const present = new Set(bkCache.map((b) => sortKey(b.title).charAt(0)).filter((c) => c >= "a" && c <= "z"));
+      const present = new Set(letterSource.map((b) => sortKey(b.title).charAt(0)).filter((c) => c >= "a" && c <= "z"));
       list.appendChild(letterStrip(bkLetter, present, (ch) => { bkLetter = ch; bkPage = 0; renderBookBrowser(""); }));
     }
 
