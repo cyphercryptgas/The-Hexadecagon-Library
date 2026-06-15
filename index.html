@@ -1111,8 +1111,8 @@ const World = (() => {
   // stairwell, you glide (in the direction you're facing) onto the next floor's
   // hallway. No continuous helix-riding, so you can't get stuck on or around it.
   const stair = { on: false, h: 0, t: 0, dur: 1.1, dir: 1, sx: 1,
-                  startAng: 0, endAng: 0, exX: 0, exZ: 0, enX: 0, enZ: 0,
-                  _shifted: false }; // t in [0,1] across the slide
+                  startAng: 0, exX: 0, exZ: 0, enX: 0, enZ: 0,
+                  exYaw: 0, _shifted: false }; // t in [0,1] across the slide
   const SCX = APO + VEST / 2;            // stair-pole |x| — sits exactly on the treadmill seam
   function stairLocal(x, z) {
     const sx = x >= 0 ? 1 : -1;
@@ -1655,14 +1655,17 @@ const World = (() => {
     m.rotation.y = -Math.PI / 2;                 // shape-x -> world +Z; extrusion -> world -X
     m.position.x = sign > 0 ? APO + 0.16 : -APO; // inner face flush with the hex side
     const grp = new THREE.Group(); grp.add(m);
-    const frameGeo = new THREE.BoxGeometry(0.2, DOOR_H + 0.08, 0.09);
+    // frame sits slightly proud of the wall face (toward the room) so its surfaces
+    // don't coincide with the wall plane — coincident faces cause z-fighting flicker
+    const frameGeo = new THREE.BoxGeometry(0.24, DOOR_H + 0.08, 0.09);
+    const proud = sign > 0 ? -0.03 : 0.03; // nudge toward the room interior
     for (const s of [-1, 1]) {
       const f = new THREE.Mesh(frameGeo, MAT.woodDark);
-      f.position.set(sign * APO, (DOOR_H + 0.08) / 2, DOOR_Z + s * (DOOR_W / 2 + 0.045));
+      f.position.set(sign * APO + proud, (DOOR_H + 0.08) / 2, DOOR_Z + s * (DOOR_W / 2 + 0.045));
       grp.add(f);
     }
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.09, DOOR_W + 0.18), MAT.woodDark);
-    lintel.position.set(sign * APO, DOOR_H + 0.045, DOOR_Z);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, DOOR_W + 0.18), MAT.woodDark);
+    lintel.position.set(sign * APO + proud, DOOR_H + 0.045, DOOR_Z);
     grp.add(lintel);
     return grp;
   }
@@ -2296,7 +2299,6 @@ const World = (() => {
       stair.t += dt / stair.dur;
       const done = stair.t >= 1;
       const e = done ? 1 : (stair.t < 0.5 ? 2 * stair.t * stair.t : 1 - Math.pow(-2 * stair.t + 2, 2) / 2);
-      // swap the floor at the midpoint so we arrive on the right level
       if (!stair._shifted && stair.t >= 0.5) {
         stair._shifted = true;
         if (stair.dir > 0) { if (cb.levelShift) cb.levelShift(1); }
@@ -2306,36 +2308,58 @@ const World = (() => {
         stair.on = false; stair.h = 0;
         player.x = stair.exX; player.z = stair.exZ;
         player.vx = 0; player.vz = 0;
+        // leave the player facing into the room, view level again
+        player.yaw = stair.exYaw; player.pitch = 0.0;
         camera.position.set(player.x, EYE, player.z);
+        camera.rotation.set(player.pitch, player.yaw, 0);
         checkPortals(performance.now());
         return;
       }
-      // phase 1 (e:0->0.5): spiral down/up around the pole one full level
-      // phase 2 (e:0.5->1): walk out from the pole into the room
       const sx = stair.sx;
-      if (e < 0.5) {
-        const p = e / 0.5;                              // 0..1 within the spiral
-        const turns = stair.dir > 0 ? 1 : -1;           // one revolution
-        const ang = stair.startAng + turns * Math.PI * 2 * p;
-        const rr = STAIR_R * 0.72;                      // ride just inside the rail
-        player.x = sx * SCX + Math.cos(ang) * rr;
-        player.z = STAIR_Z + Math.sin(ang) * rr;
-        // height ramps one level over the spiral; dir>0 goes DOWN (negative)
-        stair.h = (stair.dir > 0 ? -1 : 1) * LEVEL_H * p;
-        // but since the floor itself swaps at the midpoint, keep camera near eye level:
-        // offset so we visually descend then the floor catches up
-        stair.h = (stair.dir > 0 ? -1 : 1) * (LEVEL_H * 0.5) * p;
-      } else {
-        const p = (e - 0.5) / 0.5;                      // walking out
-        // from the pole ring to the exit point in the room
-        const px = sx * SCX + Math.cos(stair.endAng) * (STAIR_R * 0.72);
-        const pz = STAIR_Z + Math.sin(stair.endAng) * (STAIR_R * 0.72);
-        player.x = px + (stair.exX - px) * p;
-        player.z = pz + (stair.exZ - pz) * p;
-        // ease the residual height back to floor level as we step off
-        stair.h = (stair.dir > 0 ? -1 : 1) * (LEVEL_H * 0.5) * (1 - p);
+      // a continuous helical descent: one full turn around the pole across the whole
+      // slide, height falling (or rising) one level — like actually walking the stairs
+      const turns = stair.dir > 0 ? 1 : -1;
+      const ang = stair.startAng + turns * Math.PI * 2 * e;
+      const rr = STAIR_R * 0.72;                       // ride just inside the rail
+      // for the last fifth, peel outward from the pole to the exit so you step into the hall
+      let px = sx * SCX + Math.cos(ang) * rr;
+      let pz = STAIR_Z + Math.sin(ang) * rr;
+      if (e > 0.8) {
+        const p = (e - 0.8) / 0.2;
+        px = px + (stair.exX - px) * p;
+        pz = pz + (stair.exZ - pz) * p;
       }
+      player.x = px; player.z = pz;
+      // visual height: descend/ascend half a level (the floor swap at midpoint covers
+      // the other half), easing back to floor level over the final peel-out
+      const hMag = e > 0.8 ? (1 - (e - 0.8) / 0.2) : 1;
+      stair.h = (stair.dir > 0 ? -1 : 1) * (LEVEL_H * 0.5) * Math.min(1, e / 0.5) * hMag;
+
+      // ---- drive the VIEW so it feels like descending stairs ----
+      // pitch tilts down when going down, up when going up; strongest mid-slide,
+      // returning to level as you step off into the hall
+      const tiltShape = Math.sin(Math.min(1, e / 0.85) * Math.PI); // 0 -> 1 -> 0
+      const pitchTarget = (stair.dir > 0 ? -0.42 : 0.42) * tiltShape;
+      player.pitch += (pitchTarget - player.pitch) * Math.min(1, 12 * dt);
+      // yaw turns along the spiral so you face the way you're walking; tangent to the
+      // helix is the travel direction. Blend toward the exit-facing yaw at the end.
+      const tangent = ang + turns * Math.PI / 2;       // facing along the spiral
+      let yawTarget = Math.atan2(-Math.cos(tangent), -Math.sin(tangent));
+      if (e > 0.8) {
+        const p = (e - 0.8) / 0.2;
+        // shortest-path blend to the room-facing yaw
+        let dy = stair.exYaw - yawTarget;
+        while (dy > Math.PI) dy -= 2 * Math.PI;
+        while (dy < -Math.PI) dy += 2 * Math.PI;
+        yawTarget = yawTarget + dy * p;
+      }
+      let dyaw = yawTarget - player.yaw;
+      while (dyaw > Math.PI) dyaw -= 2 * Math.PI;
+      while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+      player.yaw += dyaw * Math.min(1, 10 * dt);
+
       camera.position.set(player.x, EYE + stair.h, player.z);
+      camera.rotation.set(player.pitch, player.yaw, 0);
       checkPortals(performance.now());
       return;
     }
@@ -2387,12 +2411,15 @@ const World = (() => {
         // the angle around the pole where we stepped in; spiral begins here
         stair.startAng = Math.atan2(nz - STAIR_Z, Math.abs(nx) - SCX);
         if (!isFinite(stair.startAng)) stair.startAng = 0;
-        stair.endAng = stair.startAng + (dir > 0 ? 1 : -1) * Math.PI * 2;
         stair.enX = player.x; stair.enZ = player.z;
         // exit onto the next floor: step out into the room, clear of the pole
         stair.exX = sx * (APO - 0.85); stair.exZ = 0;
         if (!walkable(stair.exX, stair.exZ)) { stair.exX = sx * (APO - 1.3); stair.exZ = 0; }
         if (!walkable(stair.exX, stair.exZ)) { stair.exX = 0; stair.exZ = 0; }
+        // face toward room center when stepping off (forward = (-sin yaw, -cos yaw))
+        const fx = 0 - stair.exX, fz = 0 - stair.exZ;
+        const fl = Math.hypot(fx, fz) || 1;
+        stair.exYaw = Math.atan2(-(fx / fl), -(fz / fl));
       } else {
         tryMove(nx, nz);
       }
