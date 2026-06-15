@@ -3522,12 +3522,15 @@ const World = (() => {
     for (const sidx of indices) {
       if (statusEl) statusEl.textContent = "gathering the shelves\u2026 (" + (++loaded) + "/" + indices.length + ")";
       let room;
+      // await the real load. loadRoom has its own internal timeouts/error handling
+      // and resolves with a proper room; the previous 8s race grabbed the still-empty
+      // cache on slow (cold-start) wing fetches and showed nothing. Give it real time.
       try {
-        room = await new Promise((res) => {
-          let done = false;
-          Promise.resolve(Catalog.loadRoom(sidx, 0, () => {})).then((rr) => { if (!done) { done = true; res(rr); } });
-          setTimeout(() => { if (!done) { done = true; res(Catalog.peekRoom(sidx, 0)); } }, 8000);
-        });
+        room = await Promise.race([
+          Promise.resolve(Catalog.loadRoom(sidx, 0, () => {})),
+          new Promise((res) => setTimeout(() => res(null), 30000)), // hard ceiling, not a cache-grab
+        ]);
+        if (!room) room = Catalog.peekRoom(sidx, 0); // only after a true 30s stall
       } catch (e) { room = Catalog.peekRoom(sidx, 0); }
       const books = (room && room.books ? room.books : []).filter(Boolean);
       for (const b of books) {
