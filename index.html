@@ -964,11 +964,14 @@ const Catalog = (() => {
   }
 
   // Plateau 3: LibriVox audiobook + Gutenberg-id resolution via the catalog node.
-  async function findAudio(title, author) {
+  async function findAudio(title, author, lvid) {
     if (!REMOTE_BASE || !(await probe())) return null;
     try {
-      return await remoteJSON("/audio/resolve?title=" + encodeURIComponent(title) +
-        (author ? "&author=" + encodeURIComponent(author) : ""), 30000);
+      const q = lvid
+        ? "/audio/resolve?lvid=" + encodeURIComponent(lvid)
+        : "/audio/resolve?title=" + encodeURIComponent(title) +
+          (author ? "&author=" + encodeURIComponent(author) : "");
+      return await remoteJSON(q, 30000);
     } catch (e) { return null; }
   }
   async function findGutenberg(title, author) {
@@ -978,14 +981,15 @@ const Catalog = (() => {
         (author ? "&author=" + encodeURIComponent(author) : ""), 30000);
     } catch (e) { return null; }
   }
-  // batch audio availability: pass [{title,author}], get back array of booleans
+  // batch audio availability: pass [{title,author}], get back {has:[], ids:[]}
   async function audioCheck(items) {
     if (!REMOTE_BASE || !(await probe()) || !items.length) return null;
     const q = items.map((it) =>
       encodeURIComponent(it.title || "") + "|" + encodeURIComponent(it.author || "")).join(";;");
     try {
       const j = await remoteJSON("/audio/check?q=" + q, 20000);
-      return (j && j.has) || null;
+      if (!j || !j.has) return null;
+      return { has: j.has, ids: j.ids || [] };
     } catch (e) { return null; }
   }
   let _audioIndexed = null;
@@ -3367,10 +3371,15 @@ const World = (() => {
       let audioSet = null;
       if (audioOnly || (dirAudioOnly && realmName === "stacks")) {
         titles.innerHTML = '<div class="dir-titles-status">finding the recordings\u2026</div>';
-        const flags = await Catalog.audioCheck(uniq.map((b) => ({ title: b.title, author: b.author })));
-        if (flags) {
+        const result = await Catalog.audioCheck(uniq.map((b) => ({ title: b.title, author: b.author })));
+        if (result && result.has) {
           audioSet = new Set();
-          uniq.forEach((b, i) => { if (flags[i]) audioSet.add(b); });
+          uniq.forEach((b, i) => {
+            if (result.has[i]) {
+              audioSet.add(b);
+              if (result.ids[i]) b._lvid = result.ids[i]; // remember the exact recording
+            }
+          });
           if (audioOnly) show = uniq.filter((b) => audioSet.has(b));
         }
       }
@@ -3890,7 +3899,7 @@ const World = (() => {
       }
       if (b._audio === undefined) {
         b._audio = null; // pending
-        Catalog.findAudio(b.title, b.author).then((a) => {
+        Catalog.findAudio(b.title, b.author, b._lvid).then((a) => {
           b._audio = (a && a.found) ? a : false;
           if (b._audio && still()) renderReader();
         });
@@ -4042,7 +4051,7 @@ const World = (() => {
     maybeShowListen();
     if (b._audio === undefined && Catalog.remoteEnabled()) {
       b._audio = null;
-      Catalog.findAudio(b.title, b.author).then((a) => {
+      Catalog.findAudio(b.title, b.author, b._lvid).then((a) => {
         b._audio = (a && a.found) ? a : false;
         maybeShowListen();
       });
