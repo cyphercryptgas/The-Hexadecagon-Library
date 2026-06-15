@@ -273,6 +273,8 @@
   .dir-row:hover{border-color:var(--brass-dim)}
   .dir-head{display:flex;align-items:center;gap:10px;padding:11px 13px}
   .dir-subj{flex:1;font-size:15px;color:var(--ink,#ece0c8);text-transform:capitalize;letter-spacing:.01em}
+  .dir-count{font-size:11px;color:var(--brass-dim);letter-spacing:.04em;margin-left:9px;text-transform:none;font-variant-numeric:tabular-nums;opacity:.75}
+  .dir-titles-bar{padding:6px 9px 9px;font-size:11px;letter-spacing:.06em;color:var(--brass-dim);text-transform:uppercase;border-bottom:1px solid var(--line-soft);margin-bottom:4px}
   .dir-acts{display:flex;gap:6px;flex-shrink:0}
   .dir-act{font-size:11.5px;letter-spacing:.04em;padding:5px 11px;border:1px solid var(--line-soft);border-radius:6px;background:transparent;color:var(--brass);cursor:pointer;transition:background .12s,color .12s,border-color .12s;font-family:inherit}
   .dir-act:hover{background:var(--amber);color:#231803;border-color:var(--amber)}
@@ -282,8 +284,8 @@
   .dir-titles.open{display:block}
   .dir-title-item{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink,#d8ccb4);transition:background .1s}
   .dir-title-item:hover{background:rgba(216,168,92,.10)}
-  .dir-title-item .dt-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dir-title-item .dt-auth{color:var(--brass-dim);font-size:11.5px;flex-shrink:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dir-title-item .dt-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink,#ece0c8);font-weight:500}
+  .dir-title-item .dt-auth{color:var(--brass-dim);font-size:11.5px;flex-shrink:0;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8}
   .dir-title-item .dt-audio{color:var(--amber);font-size:11px;flex-shrink:0}
   .dir-titles-status{padding:10px;text-align:center;color:var(--brass-dim);font-size:12px;font-style:italic}
   .dir-empty{padding:26px 8px;text-align:center;color:var(--brass-dim);font-style:italic}
@@ -3158,8 +3160,8 @@ const World = (() => {
     }, { passive: false });
     canvas.addEventListener("touchend", () => { pinchD = 0; });
     const btnTop = $("diagTop"), btnFront = $("diagFront"), btnStairs = $("diagStairs");
-    if (btnTop) btnTop.onclick = () => { autoSpin = false; tgtPitch = 1.50; };
-    if (btnFront) btnFront.onclick = () => { autoSpin = false; tgtPitch = 0.06; };
+    if (btnTop) btnTop.onclick = () => { tgtPitch = 1.50; };
+    if (btnFront) btnFront.onclick = () => { tgtPitch = 0.06; };
     if (btnStairs) btnStairs.onclick = () => {
       tgtXray = (tgtXray > 0.5 ? 0 : 1);
       btnStairs.classList.toggle("on", tgtXray > 0.5);
@@ -3239,11 +3241,10 @@ const World = (() => {
 
   let dirBuilt = false, dirAudioOnly = false, dirAudioReady = null;
   function initDirectory() {
-    Catalog.audioIndexed().then((ok) => {
-      dirAudioReady = ok;
-      const wrap = $("dirAudioOnly") && $("dirAudioOnly").closest(".dir-toggle");
-      if (wrap) wrap.style.display = ok ? "" : "none"; // hide the toggle until the index exists
-    });
+    // the toggle is always available; if the index somehow isn't ready the filter
+    // simply finds nothing rather than vanishing. (Gating its visibility on an
+    // async check was leaving it hidden.)
+    Catalog.audioIndexed().then((ok) => { dirAudioReady = ok; });
     buildDirectory();
     if (!dirBuilt) {
       dirBuilt = true;
@@ -3252,7 +3253,10 @@ const World = (() => {
       const aud = $("dirAudioOnly");
       if (aud) aud.addEventListener("change", () => {
         dirAudioOnly = aud.checked;
-        applyDirAudioOnly();
+        // re-render any open category lists under the new audio filter
+        $("dirList").querySelectorAll(".dir-row").forEach((r) => { if (r._reloadIfOpen) r._reloadIfOpen(); });
+        const filt2 = $("dirFilter");
+        if (filt2) filterDirectory(filt2.value);
       });
     }
     const filt = $("dirFilter");
@@ -3282,39 +3286,62 @@ const World = (() => {
     toast("You step into \u201C" + Catalog.pretty(subject) + "\u201D");
   }
 
-  // open a single title straight from the directory
   function dirOpenTitle(book) {
     closeModals();
-    // present it in the reader as a one-book shelf
     openReader([book], 0, true);
   }
 
-  // build one subject row with its three actions
-  function dirRow(name, realmName) {
+  // load and merge all books across a set of subjects, de-duped and A-Z sorted
+  async function loadCategoryBooks(subjectNames, realmName, statusEl) {
+    const prevRealm = Catalog.realmName();
+    Catalog.setRealm(realmName);
+    const subs = Catalog.subjectsOf();
+    const indices = subjectNames.map((n) => subs.indexOf(n)).filter((x) => x >= 0);
+    const seen = new Set(), merged = [];
+    let loaded = 0;
+    for (const sidx of indices) {
+      if (statusEl) statusEl.textContent = "gathering the shelves\u2026 (" + (++loaded) + "/" + indices.length + ")";
+      let room;
+      try {
+        room = await new Promise((res) => {
+          let done = false;
+          Promise.resolve(Catalog.loadRoom(sidx, 0, () => {})).then((rr) => { if (!done) { done = true; res(rr); } });
+          setTimeout(() => { if (!done) { done = true; res(Catalog.peekRoom(sidx, 0)); } }, 8000);
+        });
+      } catch (e) { room = Catalog.peekRoom(sidx, 0); }
+      const books = (room && room.books ? room.books : []).filter(Boolean);
+      for (const b of books) {
+        const k = ((b.title || "") + "|" + (b.author || "")).toLowerCase();
+        if (b.title && !seen.has(k)) { seen.add(k); merged.push(b); }
+      }
+    }
+    Catalog.setRealm(prevRealm);
+    // sort A-Z by title (ignoring a leading article)
+    const sortKey = (t) => (t || "").toLowerCase().replace(/^(the|a|an)\s+/, "").trim();
+    merged.sort((x, y) => sortKey(x.title).localeCompare(sortKey(y.title)));
+    return merged;
+  }
+
+  // one category row (8 of them), expanding to an A-Z book list
+  function dirCategoryRow(title, subjectNames, realmName) {
     const row = document.createElement("div");
     row.className = "dir-row";
-    row.dataset.name = name.toLowerCase();
-    row.dataset.realm = realmName;
-    row.dataset.subject = name;
+    row.dataset.name = title.toLowerCase() + " " + subjectNames.join(" ");
 
     const head = document.createElement("div");
     head.className = "dir-head";
     const subj = document.createElement("div");
-    subj.className = "dir-subj";
-    subj.textContent = Catalog.pretty(name);
+    subj.className = "dir-subj"; subj.textContent = title;
+    const count = document.createElement("span");
+    count.className = "dir-count"; count.textContent = subjectNames.length + " subjects";
+    subj.appendChild(count);
     head.appendChild(subj);
 
     const acts = document.createElement("div");
     acts.className = "dir-acts";
-    const goB = document.createElement("button");
-    goB.className = "dir-act go"; goB.textContent = "Go there";
-    goB.addEventListener("click", () => dirJump(realmName, name));
     const browseB = document.createElement("button");
     browseB.className = "dir-act browse"; browseB.textContent = "Browse titles";
-    const listenB = document.createElement("button");
-    listenB.className = "dir-act listen"; listenB.textContent = "Listen";
-    acts.appendChild(goB); acts.appendChild(browseB);
-    if (realmName === "stacks") acts.appendChild(listenB); // audio only matches the book stacks
+    acts.appendChild(browseB);
     head.appendChild(acts);
     row.appendChild(head);
 
@@ -3322,73 +3349,48 @@ const World = (() => {
     titles.className = "dir-titles";
     row.appendChild(titles);
 
-    let loaded = false, loadedAudioOnly = null;
-    function toggleTitles(audioOnly) {
-      const open = titles.classList.contains("open");
-      // if already open with the same mode, close it
-      if (open && loadedAudioOnly === audioOnly) { titles.classList.remove("open"); return; }
-      titles.classList.add("open");
-      loadTitles(audioOnly);
-    }
-    function loadTitles(audioOnly) {
-      loadedAudioOnly = audioOnly;
+    let rendered = false, renderedAudioOnly = null;
+    async function renderList() {
+      const audioOnly = dirAudioOnly && realmName === "stacks";
+      renderedAudioOnly = audioOnly;
       titles.innerHTML = '<div class="dir-titles-status">gathering the shelves\u2026</div>';
-      // need the subject index in its realm to load the room
-      const prevRealm = Catalog.realmName();
-      Catalog.setRealm(realmName);
-      const subs = Catalog.subjectsOf();
-      const sidx = subs.indexOf(name);
-      Catalog.setRealm(prevRealm); // restore
-      if (sidx < 0) { titles.innerHTML = '<div class="dir-titles-status">no shelves here yet.</div>'; return; }
-      renderTitles(sidx, audioOnly, prevRealm);
-    }
-    async function renderTitles(sidx, audioOnly, prevRealm) {
-      // temporarily switch realm so loadRoom queries the right corpus
-      Catalog.setRealm(realmName);
-      let room;
-      try {
-        room = await new Promise((res) => {
-          let done = false;
-          const r = Catalog.loadRoom(sidx, 0, () => {});
-          Promise.resolve(r).then((rr) => { if (!done) { done = true; res(rr); } });
-          setTimeout(() => { if (!done) { done = true; res(Catalog.peekRoom(sidx, 0)); } }, 9000);
-        });
-      } catch (e) { room = Catalog.peekRoom(sidx, 0); }
-      Catalog.setRealm(prevRealm);
-      const books = (room && room.books ? room.books : []).filter(Boolean);
+      const status = titles.querySelector(".dir-titles-status");
+      let books = await loadCategoryBooks(subjectNames, realmName, status);
       if (!books.length) {
         titles.innerHTML = '<div class="dir-titles-status">these shelves are still filling \u2014 walk in to browse them.</div>';
         return;
       }
-      // de-dupe by title, cap the list for sanity
-      const seen = new Set(), uniq = [];
-      for (const b of books) {
-        const k = (b.title || "").toLowerCase();
-        if (k && !seen.has(k)) { seen.add(k); uniq.push(b); }
-        if (uniq.length >= 60) break;
-      }
-      let show = uniq;
+      // audio filter / marking
       let audioSet = null;
-      if (audioOnly || (dirAudioOnly && realmName === "stacks")) {
-        titles.innerHTML = '<div class="dir-titles-status">finding the recordings\u2026</div>';
-        const result = await Catalog.audioCheck(uniq.map((b) => ({ title: b.title, author: b.author })));
+      if (audioOnly || dirAudioReady) {
+        if (titles.querySelector(".dir-titles-status"))
+          titles.querySelector(".dir-titles-status").textContent = "finding the recordings\u2026";
+        // cap audio-checking to keep it fast
+        const head2 = books.slice(0, 200);
+        const result = await Catalog.audioCheck(head2.map((b) => ({ title: b.title, author: b.author })));
         if (result && result.has) {
           audioSet = new Set();
-          uniq.forEach((b, i) => {
-            if (result.has[i]) {
-              audioSet.add(b);
-              if (result.ids[i]) b._lvid = result.ids[i]; // remember the exact recording
-            }
+          head2.forEach((b, i) => {
+            if (result.has[i]) { audioSet.add(b); if (result.ids[i]) b._lvid = result.ids[i]; }
           });
-          if (audioOnly) show = uniq.filter((b) => audioSet.has(b));
+          if (audioOnly) books = head2.filter((b) => audioSet.has(b));
+        } else if (audioOnly) {
+          books = [];
         }
       }
-      if (!show.length) {
-        titles.innerHTML = '<div class="dir-titles-status">no audiobooks found in this gallery.</div>';
+      if (!books.length) {
+        titles.innerHTML = '<div class="dir-titles-status">no audiobooks found in this category.</div>';
         return;
       }
       titles.innerHTML = "";
-      show.forEach((b) => {
+      // a small header row: count + jump to the section
+      const bar = document.createElement("div");
+      bar.className = "dir-titles-bar";
+      bar.innerHTML = '<span class="dtb-count"></span>';
+      bar.querySelector(".dtb-count").textContent =
+        books.length + (audioOnly ? " audiobooks" : " titles") + ", A\u2013Z";
+      titles.appendChild(bar);
+      books.slice(0, 400).forEach((b) => {
         const it = document.createElement("div");
         it.className = "dir-title-item";
         const nm = document.createElement("span");
@@ -3404,10 +3406,16 @@ const World = (() => {
         it.addEventListener("click", () => dirOpenTitle(b));
         titles.appendChild(it);
       });
+      rendered = true;
     }
-    browseB.addEventListener("click", () => toggleTitles(false));
-    listenB.addEventListener("click", () => toggleTitles(true));
-    row._reloadIfOpen = () => { if (titles.classList.contains("open")) loadTitles(loadedAudioOnly); };
+    browseB.addEventListener("click", () => {
+      const open = titles.classList.contains("open");
+      const audioOnly = dirAudioOnly && realmName === "stacks";
+      if (open && renderedAudioOnly === audioOnly) { titles.classList.remove("open"); return; }
+      titles.classList.add("open");
+      renderList();
+    });
+    row._reloadIfOpen = () => { if (titles.classList.contains("open")) renderList(); };
     return row;
   }
 
@@ -3415,37 +3423,31 @@ const World = (() => {
     const list = $("dirList");
     if (!list) return;
     list.innerHTML = "";
+    // the 8 broad categories of the book stacks
+    const h = document.createElement("div");
+    h.className = "dir-group"; h.textContent = "The Stacks \u2014 published books";
+    list.appendChild(h);
     DIR_GROUPS.forEach(([title, subs]) => {
-      const h = document.createElement("div");
-      h.className = "dir-group"; h.textContent = title;
-      list.appendChild(h);
-      subs.forEach((s) => list.appendChild(dirRow(s, "stacks")));
+      list.appendChild(dirCategoryRow(title, subs, "stacks"));
     });
+    // the wings stay as their own halls (research/law have far fewer, distinct subjects)
     [["research", "The Research Wing"], ["law", "The Law Library"]].forEach(([rk, label]) => {
       if (!Catalog.wingActive(rk)) return;
       const subs = (Catalog.wingSubjectsOf && Catalog.wingSubjectsOf(rk)) || [];
       if (!subs.length) return;
-      const h = document.createElement("div");
-      h.className = "dir-group"; h.textContent = label;
-      list.appendChild(h);
-      subs.forEach((s) => list.appendChild(dirRow(s, rk)));
+      const gh = document.createElement("div");
+      gh.className = "dir-group"; gh.textContent = label;
+      list.appendChild(gh);
+      // one row per wing hall (these are few and meaningfully distinct)
+      subs.forEach((s) => list.appendChild(dirCategoryRow(Catalog.pretty(s), [s], rk)));
     });
-  }
-
-  function applyDirAudioOnly() {
-    // reload any open title lists, and the filter handles row visibility
-    const list = $("dirList");
-    if (!list) return;
-    list.querySelectorAll(".dir-row").forEach((r) => { if (r._reloadIfOpen) r._reloadIfOpen(); });
   }
 
   function filterDirectory(q) {
     const term = (q || "").trim().toLowerCase();
     const list = $("dirList");
     if (!list) return;
-    let anyVisible = false;
-    // track per-group visibility
-    let currentHeader = null, headerHas = false;
+    let anyVisible = false, currentHeader = null, headerHas = false;
     Array.from(list.children).forEach((node) => {
       if (node.classList.contains("dir-group")) {
         if (currentHeader) currentHeader.style.display = headerHas ? "" : "none";
@@ -3464,7 +3466,7 @@ const World = (() => {
       if (!empty) {
         empty = document.createElement("div");
         empty.className = "dir-empty";
-        empty.textContent = "No gallery by that name \u2014 try a broader word.";
+        empty.textContent = "Nothing by that name \u2014 try a broader word.";
         list.appendChild(empty);
       }
       empty.style.display = "";
