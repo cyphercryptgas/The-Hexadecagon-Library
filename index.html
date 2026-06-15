@@ -131,6 +131,12 @@
   #trListen{border:1px solid var(--line);background:transparent;color:var(--brass);padding:7px 12px;
     font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer}
   #trListen:hover{color:var(--amber);border-color:var(--brass)}
+  #trReadAloud{border:1px solid var(--line);background:transparent;color:var(--brass);padding:7px 12px;
+    font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer}
+  #trReadAloud:hover{color:var(--amber);border-color:var(--brass)}
+  #trReadAloud.on{background:var(--amber);color:#231803;border-color:var(--amber)}
+  #trVoice{background:rgba(40,30,18,.7);color:var(--brass);border:1px solid var(--line);border-radius:7px;
+    padding:6px 8px;font-size:11px;font-family:inherit;max-width:160px;cursor:pointer}
   #tr-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
     padding:10px 26px 14px;border-top:1px solid rgba(60,40,16,.35);
     font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#6e5530}
@@ -650,6 +656,8 @@
     </div>
     <footer id="tr-foot">
       <span id="trPage">&nbsp;</span>
+      <button id="trReadAloud" class="hidden">&#128266;&nbsp; Read aloud</button>
+      <select id="trVoice" class="hidden" title="Reading voice"></select>
       <button id="trListen" class="hidden">&#9654;&nbsp; Listen along</button>
       <span id="trSource" class="smallcaps">Project Gutenberg · public domain</span>
     </footer>
@@ -3765,6 +3773,7 @@ const World = (() => {
 
 
   function openModal(id) {
+    if (id !== "textReader" && typeof RA !== "undefined" && RA.on) raStop();
     MODALS.forEach((m) => $(m).classList.toggle("hidden", m !== id));
     World.setPaused(true);
     if (id === "about") initDiagram();
@@ -4362,6 +4371,110 @@ const World = (() => {
     trApply();
   }
 
+  // ---------- read-aloud (curated browser voices; no novelty/playful ones) ----------
+  const RA = { on: false, voices: [], voice: null, rate: 0.96, pitch: 1.0, idleAdvance: false };
+  // classic macOS/iOS novelty voices to exclude — these are the "playful" ones
+  const RA_NOVELTY = /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|deranged|hysterical|pipe organ|fred|junior|ralph|kathy|princess|flo|grandma|grandpa|rocko|sandy|shelley|eddy|reed|rishi)\b/i;
+  // prefer natural / enhanced / premium voices
+  const RA_GOOD = /(natural|neural|enhanced|premium|siri|google|microsoft|samantha|ava|allison|tom|daniel|serena|moira|karen|fiona|tessa|alex|jenny|aria|guy|libby|sonia|ryan)/i;
+
+  function raLoadVoices() {
+    let all = [];
+    try { all = window.speechSynthesis.getVoices() || []; } catch (e) { all = []; }
+    // English voices only, novelty filtered out
+    let v = all.filter((x) => /^en(-|_|$)/i.test(x.lang || "") && !RA_NOVELTY.test(x.name || ""));
+    if (!v.length) v = all.filter((x) => !RA_NOVELTY.test(x.name || ""));
+    // sort: "good" natural voices first, then alphabetical
+    v.sort((a, b) => {
+      const ga = RA_GOOD.test(a.name) ? 0 : 1, gb = RA_GOOD.test(b.name) ? 0 : 1;
+      if (ga !== gb) return ga - gb;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+    RA.voices = v;
+    const sel = $("trVoice");
+    if (sel) {
+      sel.innerHTML = "";
+      v.forEach((vc, i) => {
+        const o = document.createElement("option");
+        o.value = String(i);
+        o.textContent = vc.name.replace(/\s*\(.*?\)\s*/g, " ").trim() + (RA_GOOD.test(vc.name) ? " \u2605" : "");
+        sel.appendChild(o);
+      });
+      // restore saved choice
+      let saved = "";
+      try { saved = localStorage.getItem("hexlib:voice") || ""; } catch (e) {}
+      const idx = saved ? v.findIndex((x) => x.name === saved) : 0;
+      sel.value = String(idx >= 0 ? idx : 0);
+      RA.voice = v[idx >= 0 ? idx : 0] || null;
+    }
+  }
+
+  function raSupported() { return "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined"; }
+
+  // text of the page currently in view (the nodes visible in the column window)
+  function raCurrentPageText() {
+    const flow = $("tr-flow");
+    if (!flow) return "";
+    const W = $("tr-viewport").clientWidth + TR_GAP;
+    const left = TR.page * W, right = left + W;
+    let text = "";
+    for (const node of flow.children) {
+      const x = node.offsetLeft;
+      if (x >= left - 4 && x < right - 4) text += " " + (node.textContent || "");
+    }
+    return text.replace(/\s+/g, " ").trim();
+  }
+
+  function raSpeakPage() {
+    if (!RA.on || !raSupported()) return;
+    const txt = raCurrentPageText();
+    if (!txt) { raStop(); return; }
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    const u = new SpeechSynthesisUtterance(txt);
+    if (RA.voice) u.voice = RA.voice;
+    u.rate = RA.rate; u.pitch = RA.pitch;
+    u.onend = () => {
+      if (!RA.on) return;
+      // advance to the next page and keep reading; stop at the end
+      if (TR.page < TR.pages - 1 || TR.mounted < TR.nodes.length) {
+        trGo(1);
+        setTimeout(raSpeakPage, 350);
+      } else { raStop(); }
+    };
+    u.onerror = () => { if (RA.on) raStop(); };
+    try { window.speechSynthesis.speak(u); } catch (e) { raStop(); }
+  }
+
+  function raStart() {
+    if (!raSupported()) { toast("Your browser has no read-aloud voices"); return; }
+    if (!RA.voices.length) raLoadVoices();
+    RA.on = true;
+    $("trReadAloud").innerHTML = "\u23F8\uFE0F&nbsp; Pause";
+    $("trReadAloud").classList.add("on");
+    $("trVoice").classList.remove("hidden");
+    raSpeakPage();
+  }
+  function raStop() {
+    RA.on = false;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    const b = $("trReadAloud");
+    if (b) { b.innerHTML = "\uD83D\uDD0A&nbsp; Read aloud"; b.classList.remove("on"); }
+  }
+  function raToggle() { if (RA.on) raStop(); else raStart(); }
+
+  if (raSupported()) {
+    try { window.speechSynthesis.onvoiceschanged = raLoadVoices; } catch (e) {}
+    raLoadVoices();
+    const rab = $("trReadAloud");
+    if (rab) rab.addEventListener("click", raToggle);
+    const sel = $("trVoice");
+    if (sel) sel.addEventListener("change", () => {
+      RA.voice = RA.voices[parseInt(sel.value, 10)] || null;
+      try { if (RA.voice) localStorage.setItem("hexlib:voice", RA.voice.name); } catch (e) {}
+      if (RA.on) raSpeakPage(); // restart current page in the new voice
+    });
+  }
+
   let TR_BOOK = null;
   function openTextReader(b) {
     TR_BOOK = b;
@@ -4369,6 +4482,8 @@ const World = (() => {
     $("btnCloseText").textContent = "Return to the book";
     $("trSource").textContent = "Project Gutenberg \u00b7 public domain";
     $("trListen").classList.add("hidden");
+    if (raSupported()) $("trReadAloud").classList.remove("hidden");
+    raStop();
     const maybeShowListen = () => {
       if (TR_BOOK === b && b._audio && b._audio.sections && b._audio.sections.length)
         $("trListen").classList.remove("hidden");
@@ -4429,6 +4544,8 @@ const World = (() => {
     $("btnCloseText").textContent = TR_RETURN === "reader" ? "Return to the book" : "Return to the search";
     TR_BOOK = null;
     $("trListen").classList.add("hidden");
+    if (raSupported()) $("trReadAloud").classList.remove("hidden");
+    raStop();
     $("trTitle").textContent = "\u201C" + title + "\u201D";
     $("trAuthor").textContent = byline;
     $("trSource").textContent = source;
@@ -4449,9 +4566,9 @@ const World = (() => {
     trApply();
   }
 
-  $("trPrev").addEventListener("click", () => trGo(-1));
-  $("trNext").addEventListener("click", () => trGo(1));
-  $("btnCloseText").addEventListener("click", () => openModal(TR_RETURN));
+  $("trPrev").addEventListener("click", () => { if (RA.on) raStop(); trGo(-1); });
+  $("trNext").addEventListener("click", () => { if (RA.on) raStop(); trGo(1); });
+  $("btnCloseText").addEventListener("click", () => { raStop(); openModal(TR_RETURN); });
   $("trListen").addEventListener("click", () => {
     const b = TR_BOOK;
     if (!b || !b._audio || !b._audio.sections || !b._audio.sections.length) {
