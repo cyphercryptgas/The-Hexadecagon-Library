@@ -3313,7 +3313,9 @@ const World = (() => {
 
   function dirOpenTitle(book) {
     closeModals();
-    openReader([book], 0, true);
+    // mark undefined audio as unknown so the reader resolves it; not from a shelf
+    if (book._lvid && book._audio === undefined) book._audio = undefined;
+    openReader([book], 0, false);
   }
 
   // load and merge all books across a set of subjects, de-duped and A-Z sorted
@@ -3808,10 +3810,11 @@ const World = (() => {
         }
       }
     } else {
-      $("readerFacts").textContent =
-        (b.year ? "First published " + b.year + " \u00b7 " : "") +
-        b.editions + " edition" + (b.editions === 1 ? "" : "s") +
-        " \u00b7 " + b.key.replace("/works/", "");
+      $("readerFacts").textContent = b._audiobook
+        ? ((b.year ? "First published " + b.year + " \u00b7 " : "") + "LibriVox audiobook \u2014 free to listen")
+        : ((b.year ? "First published " + b.year + " \u00b7 " : "") +
+          (b.editions || 0) + " edition" + (b.editions === 1 ? "" : "s") +
+          (b.key ? " \u00b7 " + b.key.replace("/works/", "") : ""));
     }
     const cov = $("readerCover");
     cov.onerror = () => cov.classList.add("none");
@@ -3842,9 +3845,13 @@ const World = (() => {
         : "An opinion of the " + (b.author || "court") +
           ", shelved by how often later courts have cited it.";
     }
-    desc.innerHTML = b.wing ? desc.innerHTML : '<span class="dim">consulting the catalog\u2026</span>';
+    if (b._audiobook) {
+      desc.innerHTML = '<span class="dim">A free volunteer-read recording from LibriVox. Press listen to begin.</span>';
+    } else {
+      desc.innerHTML = b.wing ? desc.innerHTML : '<span class="dim">consulting the catalog\u2026</span>';
+    }
     const myKey = b.key;
-    if (!b.wing) Catalog.workDetails(b.key).then((d) => {
+    if (!b.wing && !b._audiobook && b.key) Catalog.workDetails(b.key).then((d) => {
       if (!reader || reader.list[reader.idx].key !== myKey) return;
       let text = (d.description || "").trim()
         .replace(/\[([^\]]*)\]\[\d+\]/g, "$1")
@@ -3864,7 +3871,7 @@ const World = (() => {
     // subjects
     const sub = $("readerSubjects");
     sub.innerHTML = "";
-    for (const s of b.subjects.slice(0, 5)) {
+    for (const s of (b.subjects || []).slice(0, 5)) {
       const el = document.createElement("span");
       el.textContent = s.length > 26 ? s.slice(0, 25) + "\u2026" : s;
       sub.appendChild(el);
@@ -4001,15 +4008,18 @@ const World = (() => {
       l.style.textDecoration = "none";
       links.appendChild(l);
     }
-    const ol = document.createElement("a");
-    ol.className = "pbtn"; ol.textContent = "Open Library \u2197";
-    ol.href = "https://openlibrary.org" + b.key;
-    ol.target = "_blank"; ol.rel = "noopener";
-    ol.style.textDecoration = "none";
-    links.appendChild(ol);
+    if (b.key) {
+      const ol = document.createElement("a");
+      ol.className = "pbtn"; ol.textContent = "Open Library \u2197";
+      ol.href = "https://openlibrary.org" + b.key;
+      ol.target = "_blank"; ol.rel = "noopener";
+      ol.style.textDecoration = "none";
+      links.appendChild(ol);
+    }
     const note = document.createElement("div");
     note.style.cssText = "flex-basis:100%;font-size:11.5px;color:#7a6336;font-style:italic;margin-top:4px";
-    if (b.access === "public") note.textContent = hasText
+    if (b._audiobook) note.textContent = "A LibriVox recording \u2014 press listen to play it here.";
+    else if (b.access === "public") note.textContent = hasText
       ? "Public domain \u2014 the complete text opens right here."
       : "Public domain \u2014 every page is open.";
     else if (b.ia) note.textContent = "In copyright \u2014 the Archive shows a preview; a free archive.org account borrows the full book.";
@@ -4018,9 +4028,12 @@ const World = (() => {
 
     // Plateau 3: resolve narration + missing gutenberg ids lazily, once per book
     if (Catalog.remoteEnabled()) {
-      const myKey2 = b.key;
-      const still = () => reader && reader.list[reader.idx] && reader.list[reader.idx].key === myKey2;
-      if (!b.gutenberg && !b._gutChecked) {
+      const myKey2 = b.key || ("title:" + b.title);
+      const still = () => {
+        const cur = reader && reader.list[reader.idx];
+        return cur && (cur.key || ("title:" + cur.title)) === myKey2;
+      };
+      if (!b.gutenberg && !b._gutChecked && !b._audiobook) {
         Catalog.findGutenberg(b.title, b.author).then((r) => {
           if (r) b._gutChecked = true; // a definitive answer — even a definitive "no"
           if (r && r.gutenberg) { b.gutenberg = r.gutenberg; if (still()) renderReader(); }
@@ -4285,11 +4298,12 @@ const World = (() => {
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
     return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0");
   }
+  function plKey(b) { return b._lvid ? ("lv:" + b._lvid) : (b.key || ("t:" + (b.title || ""))); }
   function plSave() {
     if (!PL) return;
     try {
       const all = JSON.parse(localStorage.getItem("hexlib:audio") || "{}");
-      all[PL.b.key] = { i: PL.idx, t: plAudio.currentTime || 0 };
+      all[plKey(PL.b)] = { i: PL.idx, t: plAudio.currentTime || 0 };
       localStorage.setItem("hexlib:audio", JSON.stringify(all));
     } catch (e) {}
   }
@@ -4321,7 +4335,7 @@ const World = (() => {
     if (startSec != null) { plLoad(startSec, 0); }
     else {
       let saved = null;
-      try { saved = JSON.parse(localStorage.getItem("hexlib:audio") || "{}")[b.key] || null; } catch (e) {}
+      try { saved = JSON.parse(localStorage.getItem("hexlib:audio") || "{}")[plKey(b)] || null; } catch (e) {}
       plLoad(saved ? saved.i : 0, saved ? saved.t : 0);
     }
   }
