@@ -1107,15 +1107,20 @@ const World = (() => {
     vx: 0, vz: 0,            // momentum: current velocity (units/sec)
     dYaw: 0, dPitch: 0,      // look smoothing: pending rotation to ease out
     bob: 0, bobPhase: 0 };   // head-bob accumulator
-  // walkable spiral stair: the player rides a smooth helix; depth swaps under their feet
-  const stair = { on: false, thetaU: 0, h: 0, rEase: 0.70, intentR: null }; // rEase/intentR reset on boarding
+  // walkable spiral stair, simplified to a scripted slide: when you walk into the
+  // stairwell, you glide (in the direction you're facing) onto the next floor's
+  // hallway. No continuous helix-riding, so you can't get stuck on or around it.
+  const stair = { on: false, h: 0, t: 0, dur: 0.9, fromH: 0, toH: 0, dir: 1,
+                  exX: 0, exZ: 0, enX: 0, enZ: 0 }; // t in [0,1] across the slide
   const SCX = APO + VEST / 2;            // stair-pole |x| — sits exactly on the treadmill seam
-  const R_IN = 0.18, R_OUT = 0.78, R_WALK = 0.70, ENTRY_H = 0.55, R_BOARD = STAIR_R + 0.45;
+  const R_BOARD = STAIR_R + 0.5;         // how close to the pole counts as entering
   function stairLocal(x, z) {
     const sx = x >= 0 ? 1 : -1;
     const u = x - sx * SCX, v = z - STAIR_Z;
     return { sx, u, v, r: Math.hypot(u, v), th: Math.atan2(v, u) };
   }
+  // are we tilting our gaze upward as we step into the stairwell?
+  function lookingUp() { return player.pitch > 0.12; }
   let keys = {}, paused = false, entered = false;
   let lookSens = 1, speedMul = 1, fovWanted = 72, dustWanted = true; // user tuning
   let headBob = false; // toggleable in settings
@@ -2284,6 +2289,28 @@ const World = (() => {
   }
 
   function step(dt) {
+    // while the stair slide is playing, ignore input and just advance the slide
+    if (stair.on) {
+      stair.t += dt / stair.dur;
+      if (stair.t >= 1) {
+        stair.on = false; stair.h = 0;
+        player.x = stair.exX; player.z = stair.exZ;
+        player.vx = 0; player.vz = 0;
+      } else {
+        const e = stair.t < 0.5 ? 2 * stair.t * stair.t : 1 - Math.pow(-2 * stair.t + 2, 2) / 2;
+        stair.h = stair.fromH + (stair.toH - stair.fromH) * e;
+        player.x = stair.enX + (stair.exX - stair.enX) * e;
+        player.z = stair.enZ + (stair.exZ - stair.enZ) * e;
+      }
+      if (!stair._shifted && stair.t >= 0.5) {
+        stair._shifted = true;
+        if (stair.dir > 0) { if (cb.levelShift) cb.levelShift(1); }
+        else { if (cb.canRise && cb.canRise()) { if (cb.levelShift) cb.levelShift(-1); } else if (cb.atTop) cb.atTop(); }
+      }
+      camera.position.set(player.x, EYE + stair.h, player.z);
+      checkPortals(performance.now());
+      return;
+    }
     // ---- input -> desired direction ----
     const targetSpeed = (keys["shift"] ? 3.6 : 2.4) * speedMul;
     const fwd = new THREE.Vector3();
@@ -2318,66 +2345,23 @@ const World = (() => {
 
     if (vlen > 0.001) {
       const nx = player.x + mvx, nz = player.z + mvz;
-      if (!stair.on) {
-        // boarding the helix: only through the low windings near the entry step
-        const L = stairLocal(nx, nz);
-        const hEntry = (L.th / (2 * Math.PI)) * LEVEL_H;
-        if (L.r < R_BOARD && Math.abs(nx) > APO + 0.05 && Math.abs(hEntry) <= ENTRY_H) {
-          const rr = Math.min(R_WALK, Math.max(R_IN, L.r || 1e-6));
-          stair.on = true; stair.thetaU = L.th; stair.h = hEntry; stair.rEase = rr; stair.intentR = rr;
-          player.x = L.sx * SCX + (L.u / (L.r || 1e-6)) * rr;
-          player.z = STAIR_Z + (L.v / (L.r || 1e-6)) * rr;
-        } else {
-          tryMove(nx, nz);
-        }
+      // entering the stairwell: stepping into the pole's zone triggers the slide
+      const L = stairLocal(nx, nz);
+      if (L.r < R_BOARD && Math.abs(nx) > APO + 0.05) {
+        const canGoUp = cb.canRise && cb.canRise();
+        const dir = !canGoUp ? +1 : (lookingUp() ? -1 : +1); // at top: only down
+        stair.on = true; stair.t = 0; stair.dir = dir; stair._shifted = false;
+        stair.fromH = 0;
+        stair.toH = dir > 0 ? -LEVEL_H * 0.5 : LEVEL_H * 0.5;
+        stair.enX = player.x; stair.enZ = player.z;
+        // exit onto the next floor: step out into the room, well clear of the pole
+        // so we land in the hallway facing away and don't immediately re-enter
+        stair.exX = L.sx * (APO - 0.85);
+        stair.exZ = 0;
+        if (!walkable(stair.exX, stair.exZ)) { stair.exX = L.sx * (APO - 1.3); stair.exZ = 0; }
+        if (!walkable(stair.exX, stair.exZ)) { stair.exX = 0; stair.exZ = 0; }
       } else {
-        // ---- riding the helix: guide, don't railroad ----
-        const raw = stairLocal(nx, nz);
-        // Track the player's *intended* radius with little lag so a deliberate
-        // outward push can actually reach the landing (the old eased radius
-        // lagged so far behind that you could never step off).
-        stair.intentR = (stair.intentR == null ? raw.r : stair.intentR);
-        stair.intentR += (raw.r - stair.intentR) * Math.min(1, 40 * dt);
-        // Hop off onto a floor: near a landing AND pushing outward past the rail.
-        if (Math.abs(stair.h) < ENTRY_H && stair.intentR > STAIR_R - 0.02) {
-          const dirU = raw.u / (raw.r || 1e-6), dirV = raw.v / (raw.r || 1e-6);
-          const ex = raw.sx * SCX + dirU * (STAIR_R + 0.32);
-          const ez = STAIR_Z + dirV * (STAIR_R + 0.32);
-          if (walkable(ex, ez)) {
-            stair.on = false; stair.h = 0; stair.intentR = null;
-            player.x = ex; player.z = ez;
-            player.vx = 0; player.vz = 0;
-          }
-        }
-        if (stair.on) {
-          // ride radius eases for smoothness but follows intent (and may reach a
-          // bit past R_WALK toward the rail) so pushing outward isn't fought.
-          const wantR = Math.min(R_WALK + 0.10, Math.max(R_IN, stair.intentR));
-          stair.rEase += (wantR - stair.rEase) * Math.min(1, 30 * dt);
-          const rr = Math.min(R_WALK, stair.rEase); // clamp visual radius to walkable band
-
-          // follow the angle the player actually walked to (smooth ascent)
-          const cur = Math.atan2(SIN(stair.thetaU), COS(stair.thetaU));
-          let dth = raw.th - cur;
-          if (dth > Math.PI) dth -= 2 * Math.PI; else if (dth <= -Math.PI) dth += 2 * Math.PI;
-          // ease theta toward the target rather than jumping straight to it
-          let nT = stair.thetaU + dth;
-          let nH = (nT / (2 * Math.PI)) * LEVEL_H;
-          if (nH > 0.45 && cb.canRise && !cb.canRise()) {
-            if (stair.h < 0.44 && cb.atTop) cb.atTop();
-            nT = (0.45 / LEVEL_H) * 2 * Math.PI; nH = 0.45;
-          }
-          stair.thetaU = nT; stair.h = nH;
-          player.x = raw.sx * SCX + COS(nT) * rr;
-          player.z = STAIR_Z + SIN(nT) * rr;
-          if (stair.h > LEVEL_H / 2) {
-            stair.thetaU -= 2 * Math.PI; stair.h -= LEVEL_H;
-            if (cb.levelShift) cb.levelShift(-1);
-          } else if (stair.h < -LEVEL_H / 2) {
-            stair.thetaU += 2 * Math.PI; stair.h += LEVEL_H;
-            if (cb.levelShift) cb.levelShift(1);
-          }
-        }
+        tryMove(nx, nz);
       }
     }
     if (!stair.on) { // seam wrap between rooms
@@ -2529,7 +2513,7 @@ const World = (() => {
     reseed(roomStr) { flickerPhase = (fnv(roomStr) % 628) / 100; },
     placeAtCenter(faceWallDeg) {
       const a = (faceWallDeg === undefined ? 0 : faceWallDeg) * RAD;
-      stair.on = false; stair.h = 0; stair.thetaU = 0;
+      stair.on = false; stair.h = 0; stair.t = 0; stair._shifted = false;
       // stand in the walkable ring, 1.3m from the shelves, facing the wall
       player.x = 1.66 * COS(a);
       player.z = 1.66 * SIN(a);
