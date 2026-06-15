@@ -2662,7 +2662,8 @@ const World = (() => {
 
   const roomKey = () => Catalog.keyOf(((si % 64) + 64) % 64, depth);
   const accessLabel = (b) =>
-    b.access === "public" ? "full text" :
+    (b && b.gutenberg) ? "full text" :
+    b.access === "public" ? "free scan" :
     (b.access === "borrowable" || b.access === "printdisabled") ? "preview" : null;
   const curRoom = () => Catalog.peekRoom(si, depth);
   const wallOf = (q) => Math.floor(q / 160) + 1;
@@ -4324,10 +4325,14 @@ const World = (() => {
     if (TR && !$("textReader").classList.contains("hidden")) { trMeasure(); trApply(); }
   }
 
+  function trColW() { return Math.round($("tr-viewport").clientWidth); }
+
   function trMeasure() {
-    const W = $("tr-viewport").clientWidth;
+    const W = trColW();
     const flow = $("tr-flow");
+    // exact column width + matching gap so each page lands on an integer multiple
     flow.style.columnWidth = W + "px";
+    flow.style.columnGap = TR_GAP + "px";
     TR.pages = Math.max(1, Math.round((flow.scrollWidth + TR_GAP) / (W + TR_GAP)));
   }
 
@@ -4347,7 +4352,7 @@ const World = (() => {
   }
 
   function trApply() {
-    const W = $("tr-viewport").clientWidth;
+    const W = trColW();
     $("tr-flow").style.transform = "translateX(" + (-TR.page * (W + TR_GAP)) + "px)";
     const done = TR.mounted >= TR.nodes.length;
     const est = done ? TR.pages
@@ -4415,7 +4420,7 @@ const World = (() => {
   function raCurrentPageText() {
     const flow = $("tr-flow");
     if (!flow) return "";
-    const W = $("tr-viewport").clientWidth + TR_GAP;
+    const W = trColW() + TR_GAP;
     const left = TR.page * W, right = left + W;
     let text = "";
     for (const node of flow.children) {
