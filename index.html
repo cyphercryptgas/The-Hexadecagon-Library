@@ -3639,12 +3639,16 @@ const World = (() => {
     head.className = "dir-head";
     const subj = document.createElement("div");
     subj.className = "dir-subj"; subj.textContent = title;
-    // show the real title count when the index counts are known
+    // show the real title count when the index counts are known.
+    // NOTE: this is the TOTAL per category from /meta; there's no readable-only
+    // count available without loading every book, so when "Full text only" is on
+    // we label it "total" rather than letting it look like the filtered number.
     const n = Catalog.subjectsCount ? Catalog.subjectsCount(subjectNames, realmName) : null;
     if (n != null && n > 0) {
       const count = document.createElement("span");
       count.className = "dir-count";
-      count.textContent = n.toLocaleString() + " title" + (n === 1 ? "" : "s");
+      count.textContent = n.toLocaleString() + " title" + (n === 1 ? "" : "s")
+        + (dirFullText ? " total" : "");
       subj.appendChild(count);
     } else if (subjectNames.length > 1) {
       const count = document.createElement("span");
