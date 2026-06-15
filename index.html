@@ -1070,7 +1070,7 @@ const Catalog = (() => {
   // proxied and cached by the catalog node.
   async function annexSearch(kind, q) {
     if (!REMOTE_BASE || !(await probe())) throw new Error("the catalog node is offline");
-    const j = await remoteJSON("/annex/" + kind + "?q=" + encodeURIComponent(q), 25000);
+    const j = await remoteJSON("/annex/" + kind + "?q=" + encodeURIComponent(q), 45000);
     const docs = (j && j.docs) || [];
     docs.rateLimited = !!(j && j.rateLimited); // attach flag without changing the array contract
     return docs;
