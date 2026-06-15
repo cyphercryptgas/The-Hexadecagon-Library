@@ -299,6 +299,23 @@
   .ab-pgbtn:hover:not(:disabled){background:var(--amber);color:#231803;border-color:var(--amber)}
   .ab-pgbtn:disabled{opacity:.35;cursor:default}
   .ab-pglbl{font-size:12px;color:var(--brass-dim);font-variant-numeric:tabular-nums}
+  .ab-pggap{color:var(--brass-dim);padding:0 2px;font-size:12px}
+  .ab-pgbtn.nav{font-weight:600}
+  .ab-pgbtn.on{background:var(--amber);color:#231803;border-color:var(--amber);font-weight:600}
+  .ab-jump{display:inline-flex;align-items:center;gap:5px;margin-left:8px;font-size:12px;color:var(--brass-dim)}
+  .ab-jumpinp{width:48px;padding:4px 6px;background:rgba(0,0,0,.25);border:1px solid var(--line-soft);border-radius:5px;color:var(--paper);font-family:inherit;font-size:12px;-moz-appearance:textfield}
+  .ab-jumpinp::-webkit-outer-spin-button,.ab-jumpinp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .ab-letter.empty{opacity:.25;cursor:default}
+  .dir-cats{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 12px}
+  .dir-cat{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--line-soft);border-radius:16px;background:transparent;color:var(--brass);cursor:pointer;font-family:inherit;font-size:12.5px;transition:background .12s,color .12s,border-color .12s}
+  .dir-cat:hover{background:rgba(216,168,92,.10);border-color:var(--brass-dim)}
+  .dir-cat.on{background:var(--amber);color:#231803;border-color:var(--amber);font-weight:600}
+  .dir-cat em{font-style:normal;font-size:10.5px;opacity:.7;font-variant-numeric:tabular-nums}
+  .dir-cat.on em{opacity:.85}
+  .dir-backbar{display:flex;align-items:center;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line-soft)}
+  .dir-backbtn{font-size:12px;padding:6px 13px;border:1px solid var(--line-soft);border-radius:7px;background:transparent;color:var(--brass);cursor:pointer;font-family:inherit;transition:background .12s}
+  .dir-backbtn:hover{background:rgba(216,168,92,.12);border-color:var(--brass-dim)}
+  .dir-backttl{font-size:15px;color:var(--paper);font-weight:600;text-transform:capitalize}
   #diagCanvas{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
   #diagCanvas:active{cursor:grabbing}
   #diagHint{padding:6px 12px 0;font-size:11px;color:#6f5a33;letter-spacing:.08em;pointer-events:none}
@@ -1014,7 +1031,7 @@ const Catalog = (() => {
     } catch (e) { _audioIndexed = false; }
     return _audioIndexed;
   }
-  // browse the full LibriVox catalogue: {page, per, letter, q} -> {books, total}
+  // browse the full LibriVox catalogue: {page, per, letter, q, cat} -> {books, total, hasCat}
   async function audioBrowse(opts) {
     if (!REMOTE_BASE || !(await probe())) return null;
     const o = opts || {};
@@ -1023,10 +1040,21 @@ const Catalog = (() => {
     if (o.per) qs.push("per=" + encodeURIComponent(o.per));
     if (o.letter) qs.push("letter=" + encodeURIComponent(o.letter));
     if (o.q) qs.push("q=" + encodeURIComponent(o.q));
+    if (o.cat) qs.push("cat=" + encodeURIComponent(o.cat));
     try {
       const j = await remoteJSON("/audio/browse?" + qs.join("&"), 20000);
       return j || null;
     } catch (e) { return null; }
+  }
+  let _audioCats = null;
+  async function audioCategories() {
+    if (_audioCats !== null) return _audioCats;
+    if (!REMOTE_BASE || !(await probe())) return (_audioCats = []);
+    try {
+      const j = await remoteJSON("/audio/categories", 12000);
+      _audioCats = (j && j.hasCat && j.categories) ? j.categories : [];
+    } catch (e) { _audioCats = []; }
+    return _audioCats;
   }
 
   // The Annex: research papers (arXiv) and case law (CourtListener),
@@ -1057,7 +1085,7 @@ const Catalog = (() => {
     loadRoom, peekRoom, workDetails, searchBooks, byIsbn, byWorkId, randomSpot, coverURL, gutenbergText, findAudio, findGutenberg,
     probe, remoteEnabled: () => !!REMOTE_BASE,
     annexSearch, annexCase, annexDocket, annexStatute,
-    audioCheck, audioIndexed, audioBrowse,
+    audioCheck, audioIndexed, audioBrowse, audioCategories,
     setRealm, realmName, subjectCount, wingActive,
     subjectsOf: subjectsNow,
     wingSubjectsOf: (rk) => (wingInfo && wingInfo[rk] && wingInfo[rk].subjects) || [],
@@ -3317,6 +3345,7 @@ const World = (() => {
       const filt = $("dirFilter");
       if (filt) filt.addEventListener("input", () => {
         if (dirAudioOnly) { abLetter = ""; abPage = 0; renderAudiobookBrowser(filt.value); }
+        else if (bkCat) { bkLetter = ""; bkPage = 0; renderBookBrowser(filt.value); }
         else filterDirectory(filt.value);
       });
       const aud = $("dirAudioOnly");
@@ -3394,119 +3423,72 @@ const World = (() => {
   }
 
   // one category row (8 of them), expanding to an A-Z book list
-  function dirCategoryRow(title, subjectNames, realmName) {
-    const row = document.createElement("div");
-    row.className = "dir-row";
-    row.dataset.name = title.toLowerCase() + " " + subjectNames.join(" ");
-
-    const head = document.createElement("div");
-    head.className = "dir-head";
-    const subj = document.createElement("div");
-    subj.className = "dir-subj"; subj.textContent = title;
-    const count = document.createElement("span");
-    count.className = "dir-count"; count.textContent = subjectNames.length + " subjects";
-    subj.appendChild(count);
-    head.appendChild(subj);
-
-    const acts = document.createElement("div");
-    acts.className = "dir-acts";
-    const browseB = document.createElement("button");
-    browseB.className = "dir-act browse"; browseB.textContent = "Browse titles";
-    acts.appendChild(browseB);
-    head.appendChild(acts);
-    row.appendChild(head);
-
-    const titles = document.createElement("div");
-    titles.className = "dir-titles";
-    row.appendChild(titles);
-
-    let rendered = false, renderedAudioOnly = null;
-    async function renderList() {
-      const audioOnly = dirAudioOnly && realmName === "stacks";
-      renderedAudioOnly = audioOnly;
-      titles.innerHTML = '<div class="dir-titles-status">gathering the shelves\u2026</div>';
-      const status = titles.querySelector(".dir-titles-status");
-      let books = await loadCategoryBooks(subjectNames, realmName, status);
-      if (!books.length) {
-        titles.innerHTML = '<div class="dir-titles-status">these shelves are still filling \u2014 walk in to browse them.</div>';
-        return;
+  // ---------- shared pagination: number buttons + prev/next + jump-to-page ----------
+  function buildPager(curPage, totalPages, onGo) {
+    const pg = document.createElement("div");
+    pg.className = "ab-pager";
+    if (totalPages <= 1) return pg;
+    const mk = (label, page, opts) => {
+      const b = document.createElement("button");
+      b.className = "ab-pgbtn" + ((opts && opts.cls) ? " " + opts.cls : "");
+      b.textContent = label;
+      if (opts && opts.on) b.classList.add("on");
+      if (opts && opts.disabled) b.disabled = true;
+      else b.addEventListener("click", () => onGo(page));
+      return b;
+    };
+    pg.appendChild(mk("\u2190", curPage - 1, { disabled: curPage <= 0, cls: "nav" }));
+    // windowed number buttons: first, last, and a few around current
+    const nums = new Set([0, totalPages - 1, curPage]);
+    for (let d = 1; d <= 2; d++) { nums.add(curPage - d); nums.add(curPage + d); }
+    const sorted = [...nums].filter((n) => n >= 0 && n < totalPages).sort((a, b) => a - b);
+    let prev = -1;
+    sorted.forEach((n) => {
+      if (prev >= 0 && n - prev > 1) {
+        const gap = document.createElement("span");
+        gap.className = "ab-pggap"; gap.textContent = "\u2026";
+        pg.appendChild(gap);
       }
-      // audio filter / marking
-      let audioSet = null;
-      if (audioOnly || dirAudioReady) {
-        if (titles.querySelector(".dir-titles-status"))
-          titles.querySelector(".dir-titles-status").textContent = "finding the recordings\u2026";
-        // cap audio-checking to keep it fast
-        const head2 = books.slice(0, 200);
-        const result = await Catalog.audioCheck(head2.map((b) => ({ title: b.title, author: b.author })));
-        if (result && result.has) {
-          audioSet = new Set();
-          head2.forEach((b, i) => {
-            if (result.has[i]) { audioSet.add(b); if (result.ids[i]) b._lvid = result.ids[i]; }
-          });
-          if (audioOnly) books = head2.filter((b) => audioSet.has(b));
-        } else if (audioOnly) {
-          books = [];
-        }
-      }
-      if (!books.length) {
-        titles.innerHTML = '<div class="dir-titles-status">no audiobooks found in this category.</div>';
-        return;
-      }
-      titles.innerHTML = "";
-      // a small header row: count + jump to the section
-      const bar = document.createElement("div");
-      bar.className = "dir-titles-bar";
-      bar.innerHTML = '<span class="dtb-count"></span>';
-      bar.querySelector(".dtb-count").textContent =
-        books.length + (audioOnly ? " audiobooks" : " titles") + ", A\u2013Z";
-      titles.appendChild(bar);
-      books.slice(0, 400).forEach((b) => {
-        const it = document.createElement("div");
-        it.className = "dir-title-item";
-        const nm = document.createElement("span");
-        nm.className = "dt-name"; nm.textContent = b.title || "Untitled";
-        const au = document.createElement("span");
-        au.className = "dt-auth"; au.textContent = b.author || "";
-        it.appendChild(nm); it.appendChild(au);
-        if (audioSet && audioSet.has(b)) {
-          const a = document.createElement("span");
-          a.className = "dt-audio"; a.textContent = "\u266A";
-          it.appendChild(a);
-        }
-        it.addEventListener("click", () => dirOpenTitle(b));
-        titles.appendChild(it);
-      });
-      rendered = true;
-    }
-    browseB.addEventListener("click", () => {
-      const open = titles.classList.contains("open");
-      const audioOnly = dirAudioOnly && realmName === "stacks";
-      if (open && renderedAudioOnly === audioOnly) { titles.classList.remove("open"); return; }
-      titles.classList.add("open");
-      renderList();
+      pg.appendChild(mk(String(n + 1), n, { on: n === curPage }));
+      prev = n;
     });
-    row._reloadIfOpen = () => { if (titles.classList.contains("open")) renderList(); };
-    return row;
+    pg.appendChild(mk("\u2192", curPage + 1, { disabled: curPage >= totalPages - 1, cls: "nav" }));
+    // jump-to-page input
+    const jump = document.createElement("span");
+    jump.className = "ab-jump";
+    const inp = document.createElement("input");
+    inp.type = "number"; inp.min = "1"; inp.max = String(totalPages);
+    inp.placeholder = "#"; inp.className = "ab-jumpinp";
+    const go = () => {
+      let v = parseInt(inp.value, 10);
+      if (!isNaN(v)) { v = Math.max(1, Math.min(totalPages, v)); onGo(v - 1); }
+    };
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    const gob = document.createElement("button");
+    gob.className = "ab-pgbtn"; gob.textContent = "Go";
+    gob.addEventListener("click", go);
+    jump.appendChild(document.createTextNode("Jump:")); jump.appendChild(inp); jump.appendChild(gob);
+    pg.appendChild(jump);
+    return pg;
   }
 
-  function buildDirectory() {
+  // ---------- the book stacks: category list, each opening an A-Z browser ----------
+  // viewing state for the in-category book browser
+  let bkCat = null, bkLetter = "", bkPage = 0, bkCache = null; // bkCache: merged A-Z books for bkCat
+  const BK_PER = 50;
+
+  function dirOpenTitleStacks(b) { dirOpenTitle(b); }
+
+  // render the list of 8 categories (+ wing halls)
+  function renderCategoryList() {
     const list = $("dirList");
-    if (!list) return;
-    const filt = $("dirFilter");
-    if (dirAudioOnly) {
-      if (filt) filt.placeholder = "Search audiobooks by title or author\u2026";
-      renderAudiobookBrowser(filt ? filt.value : "");
-      return;
-    }
-    if (filt) filt.placeholder = "Filter subjects\u2026";
     list.innerHTML = "";
+    const filt = $("dirFilter");
+    if (filt) filt.placeholder = "Filter categories\u2026";
     const h = document.createElement("div");
     h.className = "dir-group"; h.textContent = "The Stacks \u2014 published books";
     list.appendChild(h);
-    DIR_GROUPS.forEach(([title, subs]) => {
-      list.appendChild(dirCategoryRow(title, subs, "stacks"));
-    });
+    DIR_GROUPS.forEach(([title, subs]) => list.appendChild(categoryRow(title, subs, "stacks")));
     [["research", "The Research Wing"], ["law", "The Law Library"]].forEach(([rk, label]) => {
       if (!Catalog.wingActive(rk)) return;
       const subs = (Catalog.wingSubjectsOf && Catalog.wingSubjectsOf(rk)) || [];
@@ -3514,39 +3496,205 @@ const World = (() => {
       const gh = document.createElement("div");
       gh.className = "dir-group"; gh.textContent = label;
       list.appendChild(gh);
-      subs.forEach((s) => list.appendChild(dirCategoryRow(Catalog.pretty(s), [s], rk)));
+      subs.forEach((s) => list.appendChild(categoryRow(Catalog.pretty(s), [s], rk)));
     });
+    if (filt && filt.value) filterDirectory(filt.value);
   }
 
+  function categoryRow(title, subjectNames, realmName) {
+    const row = document.createElement("div");
+    row.className = "dir-row";
+    row.dataset.name = title.toLowerCase() + " " + subjectNames.join(" ");
+    const head = document.createElement("div");
+    head.className = "dir-head";
+    const subj = document.createElement("div");
+    subj.className = "dir-subj"; subj.textContent = title;
+    if (subjectNames.length > 1) {
+      const count = document.createElement("span");
+      count.className = "dir-count"; count.textContent = subjectNames.length + " subjects";
+      subj.appendChild(count);
+    }
+    head.appendChild(subj);
+    const acts = document.createElement("div");
+    acts.className = "dir-acts";
+    const openB = document.createElement("button");
+    openB.className = "dir-act browse"; openB.textContent = "Browse A\u2013Z";
+    openB.addEventListener("click", () => openCategory(title, subjectNames, realmName));
+    acts.appendChild(openB);
+    head.appendChild(acts);
+    row.appendChild(head);
+    return row;
+  }
+
+  async function openCategory(title, subjectNames, realmName) {
+    bkCat = { title, subjectNames, realmName };
+    bkLetter = ""; bkPage = 0; bkCache = null;
+    const filt = $("dirFilter");
+    if (filt) { filt.value = ""; filt.placeholder = "Search " + title + " by title or author\u2026"; }
+    await renderBookBrowser("");
+  }
+
+  async function renderBookBrowser(searchTerm) {
+    const list = $("dirList");
+    if (!list || !bkCat) return;
+    const term = (searchTerm || "").trim().toLowerCase();
+    list.innerHTML = "";
+
+    // header: a back-to-categories button + the category title
+    const bar = document.createElement("div");
+    bar.className = "dir-backbar";
+    const back = document.createElement("button");
+    back.className = "dir-backbtn"; back.textContent = "\u2190 Categories";
+    back.addEventListener("click", () => { bkCat = null; renderCategoryList(); });
+    bar.appendChild(back);
+    const ttl = document.createElement("span");
+    ttl.className = "dir-backttl"; ttl.textContent = bkCat.title;
+    bar.appendChild(ttl);
+    list.appendChild(bar);
+
+    // load + merge (cached after first time)
+    if (!bkCache) {
+      const status = document.createElement("div");
+      status.className = "dir-titles-status";
+      status.textContent = "gathering the shelves\u2026";
+      list.appendChild(status);
+      bkCache = await loadCategoryBooks(bkCat.subjectNames, bkCat.realmName, status);
+      status.remove();
+      // mark audiobook availability across the whole category (best-effort, capped)
+      if (dirAudioReady && bkCache.length) {
+        const head2 = bkCache.slice(0, 300);
+        const r = await Catalog.audioCheck(head2.map((b) => ({ title: b.title, author: b.author })));
+        if (r && r.has) head2.forEach((b, i) => { if (r.has[i]) { b._hasAudio = true; if (r.ids[i]) b._lvid = r.ids[i]; } });
+      }
+    }
+    if (!bkCache.length) {
+      const e = document.createElement("div");
+      e.className = "dir-empty"; e.textContent = "these shelves are still filling \u2014 walk in to browse them.";
+      list.appendChild(e);
+      return;
+    }
+
+    // filter: search term or letter
+    const sortKey = (t) => (t || "").toLowerCase().replace(/^(the|a|an)\s+/, "").trim();
+    let books = bkCache;
+    if (term) books = books.filter((b) => (b.title || "").toLowerCase().includes(term) || (b.author || "").toLowerCase().includes(term));
+    else if (bkLetter) books = books.filter((b) => sortKey(b.title).charAt(0) === bkLetter);
+
+    // letter strip (hidden while searching)
+    if (!term) {
+      const present = new Set(bkCache.map((b) => sortKey(b.title).charAt(0)).filter((c) => c >= "a" && c <= "z"));
+      list.appendChild(letterStrip(bkLetter, present, (ch) => { bkLetter = ch; bkPage = 0; renderBookBrowser(""); }));
+    }
+
+    const groupHead = document.createElement("div");
+    groupHead.className = "dir-group";
+    groupHead.textContent = term ? (books.length + " matching \u201C" + term + "\u201D")
+      : bkLetter ? (books.length + " under \u201C" + bkLetter.toUpperCase() + "\u201D")
+      : (books.length.toLocaleString() + " titles, A\u2013Z");
+    list.appendChild(groupHead);
+
+    if (!books.length) {
+      const e = document.createElement("div");
+      e.className = "dir-empty"; e.textContent = "Nothing here \u2014 try another letter or search.";
+      list.appendChild(e);
+      return;
+    }
+
+    const totalPages = Math.ceil(books.length / BK_PER);
+    if (bkPage >= totalPages) bkPage = 0;
+    const pageBooks = term ? books.slice(0, 80) : books.slice(bkPage * BK_PER, bkPage * BK_PER + BK_PER);
+    const wrap = document.createElement("div");
+    wrap.className = "ab-list";
+    pageBooks.forEach((b) => wrap.appendChild(titleItem(b, b._hasAudio, () => dirOpenTitle(b))));
+    list.appendChild(wrap);
+
+    if (!term) list.appendChild(buildPager(bkPage, totalPages, (p) => { bkPage = p; renderBookBrowser(""); list.scrollTop = 0; }));
+  }
+
+  // shared A-Z letter strip
+  function letterStrip(active, presentSet, onPick) {
+    const strip = document.createElement("div");
+    strip.className = "ab-letters";
+    const all = document.createElement("button");
+    all.className = "ab-letter" + (active === "" ? " on" : "");
+    all.textContent = "All";
+    all.addEventListener("click", () => onPick(""));
+    strip.appendChild(all);
+    "abcdefghijklmnopqrstuvwxyz".split("").forEach((ch) => {
+      const b = document.createElement("button");
+      const has = !presentSet || presentSet.has(ch);
+      b.className = "ab-letter" + (active === ch ? " on" : "") + (has ? "" : " empty");
+      b.textContent = ch.toUpperCase();
+      if (has) b.addEventListener("click", () => onPick(ch));
+      else b.disabled = true;
+      strip.appendChild(b);
+    });
+    return strip;
+  }
+
+  // shared title row
+  function titleItem(b, hasAudio, onClick) {
+    const it = document.createElement("div");
+    it.className = "dir-title-item";
+    const nm = document.createElement("span");
+    nm.className = "dt-name"; nm.textContent = b.title || "Untitled";
+    const au = document.createElement("span");
+    au.className = "dt-auth"; au.textContent = b.author || "";
+    it.appendChild(nm); it.appendChild(au);
+    if (hasAudio) {
+      const a = document.createElement("span");
+      a.className = "dt-audio"; a.textContent = "\u266A";
+      it.appendChild(a);
+    }
+    it.addEventListener("click", onClick);
+    return it;
+  }
+
+  function buildDirectory() {
+    const list = $("dirList");
+    if (!list) return;
+    if (dirAudioOnly) { bkCat = null; renderAudiobookBrowser($("dirFilter") ? $("dirFilter").value : ""); return; }
+    if (bkCat) { renderBookBrowser($("dirFilter") ? $("dirFilter").value : ""); return; }
+    renderCategoryList();
+  }
+
+  // ---------- the audiobook catalogue: A-Z browser + categories ----------
   const AB_PER = 50;
+  let abCat = ""; // optional LibriVox genre filter
   async function renderAudiobookBrowser(searchTerm) {
     const list = $("dirList");
     if (!list) return;
     const term = (searchTerm || "").trim();
     list.innerHTML = "";
 
-    // header with the total and the A-Z letter strip
     const head = document.createElement("div");
     head.className = "dir-group";
     head.innerHTML = '<span id="abTotal">The Audiobook Catalogue</span>';
     list.appendChild(head);
 
+    // category chips (only if the index carries genres). "All" clears the filter.
     if (!term) {
-      const strip = document.createElement("div");
-      strip.className = "ab-letters";
-      const all = document.createElement("button");
-      all.className = "ab-letter" + (abLetter === "" ? " on" : "");
-      all.textContent = "All";
-      all.addEventListener("click", () => { abLetter = ""; abPage = 0; renderAudiobookBrowser(""); });
-      strip.appendChild(all);
-      "abcdefghijklmnopqrstuvwxyz".split("").forEach((ch) => {
-        const b = document.createElement("button");
-        b.className = "ab-letter" + (abLetter === ch ? " on" : "");
-        b.textContent = ch.toUpperCase();
-        b.addEventListener("click", () => { abLetter = ch; abPage = 0; renderAudiobookBrowser(""); });
-        strip.appendChild(b);
-      });
-      list.appendChild(strip);
+      const cats = await Catalog.audioCategories();
+      if (cats && cats.length) {
+        const chips = document.createElement("div");
+        chips.className = "dir-cats";
+        const allChip = document.createElement("button");
+        allChip.className = "dir-cat" + (abCat === "" ? " on" : "");
+        allChip.textContent = "All";
+        allChip.addEventListener("click", () => { abCat = ""; abLetter = ""; abPage = 0; renderAudiobookBrowser(""); });
+        chips.appendChild(allChip);
+        cats.forEach((c) => {
+          const chip = document.createElement("button");
+          chip.className = "dir-cat" + (abCat === c.name ? " on" : "");
+          chip.innerHTML = '<span></span><em>' + c.count + "</em>";
+          chip.querySelector("span").textContent = c.name;
+          chip.addEventListener("click", () => { abCat = c.name; abLetter = ""; abPage = 0; renderAudiobookBrowser(""); });
+          chips.appendChild(chip);
+        });
+        list.appendChild(chips);
+      }
+      // letter strip (scopes within the active category)
+      list.appendChild(letterStrip(abLetter, null, (ch) => { abLetter = ch; abPage = 0; renderAudiobookBrowser(""); }));
     }
 
     const status = document.createElement("div");
@@ -3555,66 +3703,35 @@ const World = (() => {
     list.appendChild(status);
 
     const res = await Catalog.audioBrowse(
-      term ? { q: term, per: 80 } : { page: abPage, per: AB_PER, letter: abLetter });
-    if (!res || !res.books) {
-      status.textContent = "the audiobook catalogue is unavailable right now.";
-      return;
-    }
+      term ? { q: term, per: 80 } : { page: abPage, per: AB_PER, letter: abLetter, cat: abCat });
+    if (!res || !res.books) { status.textContent = "the audiobook catalogue is unavailable right now."; return; }
     status.remove();
     const total = res.total || res.books.length;
+    const catLabel = abCat ? (" in " + abCat) : "";
     const tEl = $("abTotal");
-    if (tEl) {
-      tEl.textContent = term ? (res.books.length + " audiobooks matching \u201C" + term + "\u201D")
-        : abLetter ? (total + " audiobooks under \u201C" + abLetter.toUpperCase() + "\u201D")
-        : (total.toLocaleString() + " audiobooks \u2014 the whole LibriVox shelf");
-    }
+    if (tEl) tEl.textContent = term ? (res.books.length + " audiobooks matching \u201C" + term + "\u201D")
+      : abLetter ? (total + " under \u201C" + abLetter.toUpperCase() + "\u201D" + catLabel)
+      : abCat ? (total.toLocaleString() + " audiobooks in " + abCat)
+      : (total.toLocaleString() + " audiobooks \u2014 the whole LibriVox shelf");
     if (!res.books.length) {
       const e = document.createElement("div");
       e.className = "dir-empty"; e.textContent = "No audiobooks here.";
       list.appendChild(e);
       return;
     }
-
     const wrap = document.createElement("div");
     wrap.className = "ab-list";
-    res.books.forEach((b) => {
-      const it = document.createElement("div");
-      it.className = "dir-title-item";
-      const nm = document.createElement("span");
-      nm.className = "dt-name"; nm.textContent = b.title || "Untitled";
-      const au = document.createElement("span");
-      au.className = "dt-auth"; au.textContent = b.author || "";
-      const mark = document.createElement("span");
-      mark.className = "dt-audio"; mark.textContent = "\u266A";
-      it.appendChild(nm); it.appendChild(au); it.appendChild(mark);
-      it.addEventListener("click", () => {
-        // open as a one-book reader, carrying the exact LibriVox id so it plays
-        dirOpenTitle({ title: b.title, author: b.author, _lvid: b.lvid, _audiobook: true });
-      });
-      wrap.appendChild(it);
-    });
+    res.books.forEach((b) => wrap.appendChild(
+      titleItem({ title: b.title, author: b.author }, true,
+        () => dirOpenTitle({ title: b.title, author: b.author, _lvid: b.lvid, _audiobook: true }))));
     list.appendChild(wrap);
 
-    // pagination (only when not searching)
-    if (!term && total > AB_PER) {
-      const pages = Math.ceil(total / AB_PER);
-      const pg = document.createElement("div");
-      pg.className = "ab-pager";
-      const prev = document.createElement("button");
-      prev.className = "ab-pgbtn"; prev.textContent = "\u2190 Prev";
-      prev.disabled = abPage <= 0;
-      prev.addEventListener("click", () => { if (abPage > 0) { abPage--; renderAudiobookBrowser(""); list.scrollTop = 0; } });
-      const lbl = document.createElement("span");
-      lbl.className = "ab-pglbl";
-      lbl.textContent = "Page " + (abPage + 1) + " of " + pages;
-      const next = document.createElement("button");
-      next.className = "ab-pgbtn"; next.textContent = "Next \u2192";
-      next.disabled = abPage >= pages - 1;
-      next.addEventListener("click", () => { if (abPage < pages - 1) { abPage++; renderAudiobookBrowser(""); list.scrollTop = 0; } });
-      pg.appendChild(prev); pg.appendChild(lbl); pg.appendChild(next);
-      list.appendChild(pg);
+    if (!term) {
+      const totalPages = Math.ceil(total / AB_PER);
+      list.appendChild(buildPager(abPage, totalPages, (p) => { abPage = p; renderAudiobookBrowser(""); list.scrollTop = 0; }));
     }
   }
+
 
   function filterDirectory(q) {
     const term = (q || "").trim().toLowerCase();
@@ -4051,6 +4168,28 @@ const World = (() => {
       l.href = b._audio.url; l.target = "_blank"; l.rel = "noopener";
       l.style.textDecoration = "none";
       links.appendChild(l);
+    }
+    if (b._audiobook) {
+      // read along: find the actual book in the catalog and open its page
+      const ra = document.createElement("button");
+      ra.className = "pbtn"; ra.textContent = "Read along \u2014 find the book";
+      ra.addEventListener("click", async () => {
+        ra.textContent = "searching the shelves\u2026"; ra.disabled = true;
+        try {
+          const results = await Catalog.searchBooks(b.title + (b.author ? " " + b.author : ""));
+          // best match: same-ish title
+          const want = (b.title || "").toLowerCase().replace(/^(the|a|an)\s+/, "").trim();
+          let hit = (results || []).find((r) => (r.title || "").toLowerCase().replace(/^(the|a|an)\s+/, "").trim() === want);
+          if (!hit && results && results.length) hit = results[0];
+          if (hit) {
+            hit._lvid = b._lvid; // carry the audio so you can read AND listen
+            openReader([hit], 0, false);
+          } else {
+            ra.textContent = "no readable copy found"; 
+          }
+        } catch (e) { ra.textContent = "couldn\u2019t reach the shelves"; }
+      });
+      links.appendChild(ra);
     }
     if (b.key) {
       const ol = document.createElement("a");
