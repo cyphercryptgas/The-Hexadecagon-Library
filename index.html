@@ -722,6 +722,7 @@ const Catalog = (() => {
   // ---- realms: the Stacks, and the Wings beyond the portal doors ----
   let realm = "stacks";           // "stacks" | "research" | "law"
   let wingInfo = null;            // from /wing/info: { research:{subjects,...}, law:{...} }
+  let subjectCountMap = null;     // from /meta: { subjectName: bookCount } for the stacks
   const setRealm = (r) => { realm = (r === "research" || r === "law") ? r : "stacks"; };
   const realmName = () => realm;
   const wingActive = (r) => !!(wingInfo && wingInfo[r] &&
@@ -776,6 +777,9 @@ const Catalog = (() => {
       remoteJSON("/wing/info", 8000)
         .then((j) => { wingInfo = (j && j.wings) || {}; })
         .catch(() => {}); // wings are optional — the doors just stay boarded
+      remoteJSON("/meta", 8000)
+        .then((j) => { if (j && j.subject_counts) subjectCountMap = j.subject_counts; })
+        .catch(() => {}); // counts are a nicety — categories still work without them
       remoteState = "up";
       return remoteInfo;
     } catch (e) {
@@ -1101,6 +1105,19 @@ const Catalog = (() => {
     setRealm, realmName, subjectCount, wingActive,
     subjectsOf: subjectsNow,
     wingSubjectsOf: (rk) => (wingInfo && wingInfo[rk] && wingInfo[rk].subjects) || [],
+    // total books across a set of subjects (from /meta counts). Returns:
+    //   a number >= 0 when counts are known, or null when counts haven't loaded yet
+    subjectsCount: (subjectNames, realmName) => {
+      // only the stacks have a loaded count map; wings report their own if present
+      let map = null;
+      if (!realmName || realmName === "stacks") map = subjectCountMap;
+      else if (wingInfo && wingInfo[realmName] && wingInfo[realmName].subject_counts)
+        map = wingInfo[realmName].subject_counts;
+      if (!map) return null; // unknown — caller should not hide on null
+      let total = 0;
+      for (const n of subjectNames) total += (map[n] | 0);
+      return total;
+    },
   };
 })();
 </script>
@@ -3355,6 +3372,23 @@ const World = (() => {
   function initDirectory() {
     Catalog.audioIndexed().then((ok) => { dirAudioReady = ok; });
     buildDirectory();
+    // counts arrive from /meta asynchronously; once they're in, re-render the
+    // category list so counts show and empty categories drop out
+    if (Catalog.subjectsCount && Catalog.subjectsCount(DIR_GROUPS[0][1], "stacks") == null) {
+      let tries = 0;
+      const poll = setInterval(() => {
+        tries++;
+        const ready = Catalog.subjectsCount(DIR_GROUPS[0][1], "stacks") != null;
+        if (ready || tries > 20) {
+          clearInterval(poll);
+          // only refresh if we're still on the category list (not inside a category/search)
+          if (ready && !bkCat && !dirAudioOnly) {
+            const f = $("dirFilter");
+            if (!f || f.value.trim().length < 2) renderCategoryList();
+          }
+        }
+      }, 500);
+    }
     if (!dirBuilt) {
       dirBuilt = true;
       const filt = $("dirFilter");
@@ -3574,7 +3608,12 @@ const World = (() => {
     const h = document.createElement("div");
     h.className = "dir-group"; h.textContent = "The Stacks \u2014 published books";
     list.appendChild(h);
-    DIR_GROUPS.forEach(([title, subs]) => list.appendChild(categoryRow(title, subs, "stacks")));
+    DIR_GROUPS.forEach(([title, subs]) => {
+      // hide a category only when we positively know it has zero titles
+      const n = Catalog.subjectsCount ? Catalog.subjectsCount(subs, "stacks") : null;
+      if (n === 0) return;
+      list.appendChild(categoryRow(title, subs, "stacks"));
+    });
     [["research", "The Research Wing"], ["law", "The Law Library"]].forEach(([rk, label]) => {
       if (!Catalog.wingActive(rk)) return;
       const subs = (Catalog.wingSubjectsOf && Catalog.wingSubjectsOf(rk)) || [];
@@ -3582,7 +3621,11 @@ const World = (() => {
       const gh = document.createElement("div");
       gh.className = "dir-group"; gh.textContent = label;
       list.appendChild(gh);
-      subs.forEach((s) => list.appendChild(categoryRow(Catalog.pretty(s), [s], rk)));
+      subs.forEach((s) => {
+        const n = Catalog.subjectsCount ? Catalog.subjectsCount([s], rk) : null;
+        if (n === 0) return; // skip empty wing halls when known
+        list.appendChild(categoryRow(Catalog.pretty(s), [s], rk));
+      });
     });
     // if there's already a query in the box, run a global title search instead
     if (filt && filt.value.trim().length >= 2) renderGlobalTitleSearch(filt.value);
@@ -3596,7 +3639,14 @@ const World = (() => {
     head.className = "dir-head";
     const subj = document.createElement("div");
     subj.className = "dir-subj"; subj.textContent = title;
-    if (subjectNames.length > 1) {
+    // show the real title count when the index counts are known
+    const n = Catalog.subjectsCount ? Catalog.subjectsCount(subjectNames, realmName) : null;
+    if (n != null && n > 0) {
+      const count = document.createElement("span");
+      count.className = "dir-count";
+      count.textContent = n.toLocaleString() + " title" + (n === 1 ? "" : "s");
+      subj.appendChild(count);
+    } else if (subjectNames.length > 1) {
       const count = document.createElement("span");
       count.className = "dir-count"; count.textContent = subjectNames.length + " subjects";
       subj.appendChild(count);
