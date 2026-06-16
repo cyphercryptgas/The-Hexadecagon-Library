@@ -383,6 +383,19 @@
 
   @media (max-width:700px){
     .panel{padding:24px 20px}
+    /* iOS PWA fix: a flex veil with align-items:center CLIPS panels taller than
+       the viewport (the category list at the bottom of #dirModal gets pushed
+       off-screen, so the wing "opens" but the list looks empty). Top-align the
+       directory veil ONLY so its tall panel scrolls from the top instead of
+       clipping; other modals stay centered as before. */
+    #dirModal{align-items:flex-start}
+    /* cap the directory panel to the viewport and let IT scroll internally,
+       instead of relying on #dirList's 50vh (which iOS standalone computes
+       against an unexpected viewport). This makes the category list always
+       visible and scrollable on mobile. */
+    #dirModal .panel{max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);
+      overflow-y:auto;margin:12px 0}
+    #dirModal #dirList{max-height:none;overflow:visible;padding-right:4px}
     #menu button{padding:7px 9px;font-size:9px;letter-spacing:.12em}
     #paper{padding:18px 14px 12px}
     .bookbody{flex-direction:column;gap:14px}
